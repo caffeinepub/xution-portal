@@ -318,6 +318,15 @@ function toggleOfficeFav(me: string, officeId: string): string[] {
   return [...favs];
 }
 
+// ─── Lockdown helpers ─────────────────────────────────────────────────────────
+
+function getLockdown(): boolean {
+  return localStorage.getItem("x_lockdown_v1") === "1";
+}
+function setLockdown(active: boolean): void {
+  localStorage.setItem("x_lockdown_v1", active ? "1" : "0");
+}
+
 // ─── About/Credits content helpers ───────────────────────────────────────────
 
 const DEFAULT_ABOUT_CONTENT = `Project Leader: Creature Subliminals
@@ -2032,6 +2041,7 @@ function MemberRow({
   db,
   currentUser,
   isFav,
+  lockdown,
   onDM,
   onFavToggle,
   onChangeLvl,
@@ -2041,6 +2051,7 @@ function MemberRow({
   db: UserDB;
   currentUser: CurrentUser;
   isFav: boolean;
+  lockdown: boolean;
   onDM: (name: string) => void;
   onFavToggle: (name: string) => void;
   onChangeLvl: (name: string, change: number) => void;
@@ -2190,37 +2201,49 @@ function MemberRow({
             <>
               <button
                 type="button"
+                disabled={lockdown}
+                title={lockdown ? "LOCKDOWN ACTIVE" : undefined}
                 style={{
                   ...btnSmall,
-                  background: "#1a3a1a",
-                  color: S.green,
-                  border: `1px solid ${S.green}44`,
+                  background: lockdown ? "#111" : "#1a3a1a",
+                  color: lockdown ? S.dim : S.green,
+                  border: `1px solid ${lockdown ? S.dim : S.green}44`,
+                  cursor: lockdown ? "not-allowed" : "pointer",
+                  opacity: lockdown ? 0.5 : 1,
                 }}
-                onClick={() => onChangeLvl(memberName, 1)}
+                onClick={() => !lockdown && onChangeLvl(memberName, 1)}
               >
                 LVL +
               </button>
               <button
                 type="button"
+                disabled={lockdown}
+                title={lockdown ? "LOCKDOWN ACTIVE" : undefined}
                 style={{
                   ...btnSmall,
-                  background: "#1a1a00",
-                  color: S.gold,
-                  border: `1px solid ${S.gold}44`,
+                  background: lockdown ? "#111" : "#1a1a00",
+                  color: lockdown ? S.dim : S.gold,
+                  border: `1px solid ${lockdown ? S.dim : S.gold}44`,
+                  cursor: lockdown ? "not-allowed" : "pointer",
+                  opacity: lockdown ? 0.5 : 1,
                 }}
-                onClick={() => onChangeLvl(memberName, -1)}
+                onClick={() => !lockdown && onChangeLvl(memberName, -1)}
               >
                 LVL −
               </button>
               {!isSelf && (
                 <button
                   type="button"
+                  disabled={lockdown}
+                  title={lockdown ? "LOCKDOWN ACTIVE" : undefined}
                   style={{
                     ...btnSmall,
-                    background: S.red,
-                    color: "#fff",
+                    background: lockdown ? "#111" : S.red,
+                    color: lockdown ? S.dim : "#fff",
+                    cursor: lockdown ? "not-allowed" : "pointer",
+                    opacity: lockdown ? 0.5 : 1,
                   }}
-                  onClick={() => onDel(memberName)}
+                  onClick={() => !lockdown && onDel(memberName)}
                 >
                   DELETE
                 </button>
@@ -2687,10 +2710,12 @@ function MemberList({
   currentUser,
   onActivity,
   onDM,
+  lockdown,
 }: {
   currentUser: CurrentUser;
   onActivity: () => void;
   onDM: (name: string) => void;
+  lockdown: boolean;
 }) {
   const [db, setDbState] = useState<UserDB>(getDB);
   const [expanded, setExpanded] = useState(false);
@@ -2716,7 +2741,7 @@ function MemberList({
   };
 
   const changeLvl = (name: string, change: number) => {
-    if (IMMUNE.includes(name)) return;
+    if (lockdown || IMMUNE.includes(name)) return;
     const d = getDB();
     const newLvl = d[name].lvl + change;
     if (newLvl < 1 || newLvl > 6) return;
@@ -2728,7 +2753,7 @@ function MemberList({
   };
 
   const delMem = (name: string) => {
-    if (name === currentUser.name || IMMUNE.includes(name)) return;
+    if (lockdown || name === currentUser.name || IMMUNE.includes(name)) return;
     if (window.confirm(`TERMINATE IDENTITY: ${name}?`)) {
       const d = getDB();
       delete d[name];
@@ -2746,6 +2771,7 @@ function MemberList({
   const sharedRowProps = {
     db,
     currentUser,
+    lockdown,
     onDM,
     onFavToggle: handleFavToggle,
     onChangeLvl: changeLvl,
@@ -3231,11 +3257,13 @@ function SectorWorkspace({
   selectedSector,
   onActivity,
   activeOffice,
+  lockdown,
 }: {
   currentUser: CurrentUser;
   selectedSector: string;
   onActivity: () => void;
   activeOffice: OfficeLocation | null;
+  lockdown: boolean;
 }) {
   const [logs, setLogs] = useState<SectorLog[]>(getSectorLogs);
   const [adminPosts, setAdminPostsState] = useState<AdminPost[]>(getAdminPosts);
@@ -3491,7 +3519,7 @@ function SectorWorkspace({
         ) : (
           filteredLogs.map((l, i) => {
             const logId = l.id || `${l.sector}-${l.author}-${l.date}-${i}`;
-            const redacted = currentUser.lvl < l.level;
+            const redacted = lockdown || currentUser.lvl < l.level;
             const canModify =
               currentUser.lvl === 6 || l.author === currentUser.name;
             const isEditingLog = logId in editingLog;
@@ -3877,7 +3905,11 @@ function SectorWorkspace({
                     )}
                   </div>
 
-                  {isEditing ? (
+                  {lockdown ? (
+                    <p style={{ opacity: 0.5, margin: "4px 0 0" }}>
+                      [REDACTED — LOCKDOWN ACTIVE]
+                    </p>
+                  ) : isEditing ? (
                     <div style={{ marginTop: "6px" }}>
                       <textarea
                         value={editingPost[postId]}
@@ -4085,6 +4117,7 @@ export default function App() {
     useState<ActivityEntry[]>(get24hActivities);
   const [ebActive, setEbActive] = useState(!!getBroadcastMsg());
   const [ebMsg, setEbMsg] = useState(getBroadcastMsg());
+  const [lockdown, setLockdownState] = useState<boolean>(getLockdown);
   const [selectedSector, setSelectedSector] = useState("SECTOR DATA");
   const [dmTarget, setDmTarget] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
@@ -4092,6 +4125,24 @@ export default function App() {
   // Global active office — determines which office's data is shown for all facilities
   const [activeOffice, setActiveOffice] = useState<OfficeLocation | null>(null);
   const [officePickerOpen, setOfficePickerOpen] = useState(false);
+
+  // Poll lockdown state every 3s so all users see changes made by L6 on any device
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLockdownState(getLockdown());
+    }, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  const toggleLockdown = () => {
+    const next = !lockdown;
+    setLockdown(next);
+    setLockdownState(next);
+    addActivity(
+      next ? "EMERGENCY LOCKDOWN ACTIVATED" : "EMERGENCY LOCKDOWN DEACTIVATED",
+    );
+    refreshActivities();
+  };
 
   const refreshActivities = useCallback(() => {
     setActivities(get24hActivities());
@@ -4201,6 +4252,52 @@ export default function App() {
               }}
             >
               DISABLE
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Lockdown Banner */}
+      {lockdown && (
+        <div
+          style={{
+            background: "#7a3500",
+            color: "#fff",
+            padding: "10px",
+            textAlign: "center",
+            fontSize: "0.8rem",
+            letterSpacing: "2px",
+            borderBottom: "2px solid #ff6600",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "12px",
+          }}
+        >
+          <span>
+            🔒 EMERGENCY LOCKDOWN ACTIVE — ALL MEMBER ACTIONS & CONTENT
+            RESTRICTED
+          </span>
+          {user && user.lvl === 6 && (
+            <button
+              type="button"
+              data-ocid="lockdown.disable_button"
+              onClick={toggleLockdown}
+              style={{
+                background: "#000",
+                color: "#ff6600",
+                border: "1px solid #fff",
+                padding: "3px 10px",
+                fontSize: "0.65rem",
+                fontFamily: "inherit",
+                fontWeight: 900,
+                cursor: "pointer",
+                textTransform: "uppercase",
+                letterSpacing: "1px",
+                flexShrink: 0,
+              }}
+            >
+              LIFT LOCKDOWN
             </button>
           )}
         </div>
@@ -4533,6 +4630,65 @@ export default function App() {
           <>
             <FundManagement onUpdate={refreshActivities} currentUser={user} />
             <GlobalTransactionHistory />
+
+            {/* Emergency Lockdown Control */}
+            <div style={{ marginBottom: "30px" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  borderLeft: `5px solid ${lockdown ? "#ff6600" : S.dim}`,
+                  paddingLeft: "15px",
+                  marginBottom: "10px",
+                }}
+              >
+                <div>
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: "0.85rem",
+                      letterSpacing: "3px",
+                      color: lockdown ? "#ff6600" : S.dim,
+                      fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                      fontWeight: 900,
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    EMERGENCY LOCKDOWN
+                  </h3>
+                  <div
+                    style={{
+                      fontSize: "0.55rem",
+                      color: S.dim,
+                      letterSpacing: "2px",
+                      marginTop: "4px",
+                    }}
+                  >
+                    {lockdown
+                      ? "ACTIVE — PROMOTIONS, DEMOTIONS & DELETIONS BLOCKED. ALL POSTS REDACTED."
+                      : "INACTIVE — ALL SYSTEMS NORMAL"}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  data-ocid="lockdown.toggle_button"
+                  onClick={toggleLockdown}
+                  style={{
+                    ...btnSmall,
+                    background: lockdown ? "#222" : "#3a0000",
+                    color: lockdown ? "#ff6600" : S.red,
+                    border: `1px solid ${lockdown ? "#ff6600" : S.red}`,
+                    padding: "8px 16px",
+                    flex: "none",
+                    fontSize: "0.7rem",
+                    marginLeft: "15px",
+                  }}
+                >
+                  {lockdown ? "🔓 LIFT LOCKDOWN" : "🔒 INITIATE LOCKDOWN"}
+                </button>
+              </div>
+            </div>
           </>
         )}
 
@@ -4542,6 +4698,7 @@ export default function App() {
             currentUser={user}
             onActivity={refreshActivities}
             onDM={(name) => setDmTarget(name)}
+            lockdown={lockdown}
           />
         )}
 
@@ -4827,6 +4984,7 @@ export default function App() {
             selectedSector={selectedSector}
             onActivity={refreshActivities}
             activeOffice={activeOffice}
+            lockdown={lockdown}
           />
         )}
 
