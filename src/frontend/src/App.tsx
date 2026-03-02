@@ -248,6 +248,85 @@ function getCardExpiry(uid: string | undefined): string {
   return `${mm}/29`;
 }
 
+// ─── Office Location helpers ─────────────────────────────────────────────────
+
+const OFFICE_LOCATIONS = [
+  {
+    id: "OFC-ALPHA",
+    name: "ALPHA COMMAND",
+    floor: "FLOOR 1",
+    desc: "Primary executive nexus.",
+  },
+  {
+    id: "OFC-BETA",
+    name: "BETA OPERATIONS",
+    floor: "FLOOR 2",
+    desc: "Tactical planning hub.",
+  },
+  {
+    id: "OFC-GAMMA",
+    name: "GAMMA INTEL",
+    floor: "FLOOR 3",
+    desc: "Intelligence analysis unit.",
+  },
+  {
+    id: "OFC-DELTA",
+    name: "DELTA ARCHIVE",
+    floor: "FLOOR 4",
+    desc: "Records and data storage.",
+  },
+  {
+    id: "OFC-OMEGA",
+    name: "OMEGA SUMMIT",
+    floor: "FLOOR 5",
+    desc: "Sovereign council chamber.",
+  },
+];
+
+function getOfficeFavsKey(me: string): string {
+  return `x_office_favs_${me}`;
+}
+function getOfficeFavs(me: string): string[] {
+  return JSON.parse(localStorage.getItem(getOfficeFavsKey(me)) || "[]");
+}
+function toggleOfficeFav(me: string, officeId: string): string[] {
+  const favs = getOfficeFavs(me);
+  const idx = favs.indexOf(officeId);
+  if (idx >= 0) {
+    favs.splice(idx, 1);
+  } else {
+    favs.push(officeId);
+  }
+  localStorage.setItem(getOfficeFavsKey(me), JSON.stringify(favs));
+  return [...favs];
+}
+
+// ─── About/Credits content helpers ───────────────────────────────────────────
+
+const DEFAULT_ABOUT_CONTENT = `Project Leader: Creature Subliminals
+Aka: Unity
+Co-Founder: Syndelious
+Purpose: This platform was created because existing chat platforms did not honor user terms, lacked logic, and did not make sense for our workflow. Xution provides a fully functional hub for operations, member management, and sector control.`;
+
+const DEFAULT_FEATURES_CONTENT = `Full authentication system with registration & login
+Member management (levels, delete, IMMUTABLE for key IDs)
+Sector access with logs, admin posts, and emergency broadcast
+Activity feed showing last 24 hours of actions
+Collapsible member directory with direct messaging
+Facility directory with interactive tiles
+Contact command quick-link via email
+Emergency broadcast banner for critical alerts`;
+
+const DEFAULT_CREDITS_CONTENT =
+  "Code base written by Creature Subliminals (Unity) with assistance from ChatGPT. All local data is stored in browser localStorage for easy persistence and testing.";
+
+function getAboutContent(key: string, defaultVal: string): string {
+  return localStorage.getItem(key) ?? defaultVal;
+}
+function setAboutContent(key: string, val: string): void {
+  localStorage.setItem(key, val);
+}
+
 // ─── Profile picture helpers ──────────────────────────────────────────────────
 
 function getAvatarKey(name: string): string {
@@ -1696,6 +1775,14 @@ function DMPanel({
   );
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [isFav, setIsFav] = useState(() =>
+    getFavourites(currentUser.name).includes(target),
+  );
+
+  const handleFavToggle = () => {
+    const next = toggleFavourite(currentUser.name, target);
+    setIsFav(next.includes(target));
+  };
 
   const refresh = useCallback(() => {
     setMessages(getDMs(currentUser.name, target));
@@ -1757,10 +1844,32 @@ function DMPanel({
             fontWeight: 900,
             letterSpacing: "2px",
             textTransform: "uppercase",
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
         >
           DM: {target}
         </span>
+        <button
+          type="button"
+          title={isFav ? "REMOVE FAVOURITE" : "ADD FAVOURITE"}
+          onClick={handleFavToggle}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: "2px 6px",
+            color: isFav ? S.gold : S.dim,
+            fontSize: "1rem",
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+        >
+          {isFav ? "★" : "☆"}
+        </button>
         <button
           type="button"
           onClick={onClose}
@@ -1774,6 +1883,7 @@ function DMPanel({
             fontSize: "0.85rem",
             padding: "2px 6px",
             textTransform: "uppercase",
+            flexShrink: 0,
           }}
         >
           [X]
@@ -2106,6 +2216,15 @@ function MemberRow({
   );
 }
 
+// ─── Total unread DM helper ───────────────────────────────────────────────────
+
+function getTotalUnreadDMs(me: string): number {
+  const db = getDB();
+  return Object.keys(db)
+    .filter((n) => n !== me)
+    .reduce((sum, n) => sum + getDMUnreadCount(me, n), 0);
+}
+
 // ─── MemberList (collapsible, all users) ─────────────────────────────────────
 
 function MemberList({
@@ -2122,6 +2241,17 @@ function MemberList({
   const [favs, setFavs] = useState<string[]>(() =>
     getFavourites(currentUser.name),
   );
+  const [totalUnread, setTotalUnread] = useState(() =>
+    getTotalUnreadDMs(currentUser.name),
+  );
+
+  // Poll total unread count every 3 seconds
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTotalUnread(getTotalUnreadDMs(currentUser.name));
+    }, 3000);
+    return () => clearInterval(id);
+  }, [currentUser.name]);
 
   const refresh = () => setDbState(getDB());
 
@@ -2188,19 +2318,38 @@ function MemberList({
           textAlign: "left",
         }}
       >
-        <h3
-          style={{
-            margin: 0,
-            fontSize: "0.9rem",
-            letterSpacing: "3px",
-            color: S.white,
-            fontFamily: "'JetBrains Mono', 'Courier New', monospace",
-            fontWeight: 900,
-            textTransform: "uppercase",
-          }}
-        >
-          MEMBER DIRECTORY
-        </h3>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <h3
+            style={{
+              margin: 0,
+              fontSize: "0.9rem",
+              letterSpacing: "3px",
+              color: S.white,
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontWeight: 900,
+              textTransform: "uppercase",
+            }}
+          >
+            MEMBER DIRECTORY
+          </h3>
+          {totalUnread > 0 && (
+            <span
+              style={{
+                background: S.red,
+                color: "#fff",
+                fontSize: "0.55rem",
+                fontWeight: 900,
+                borderRadius: "10px",
+                padding: "2px 7px",
+                letterSpacing: "0.5px",
+                flexShrink: 0,
+                fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              }}
+            >
+              {totalUnread} NEW
+            </span>
+          )}
+        </div>
         <span
           style={{
             color: S.gold,
@@ -2222,9 +2371,12 @@ function MemberList({
       {/* Member Rows */}
       {expanded && (
         <div
+          className="xution-scroll"
           style={{
             border: `1px solid ${S.brd}`,
             background: "#080808",
+            maxHeight: "400px",
+            overflowY: "auto",
           }}
         >
           {memberNames.length === 0 ? (
@@ -2638,6 +2790,130 @@ function FacilityMenu({
   );
 }
 
+// ─── OfficeLocations ──────────────────────────────────────────────────────────
+
+function OfficeLocations({ currentUser }: { currentUser: CurrentUser }) {
+  const [favs, setFavs] = useState<string[]>(() =>
+    getOfficeFavs(currentUser.name),
+  );
+
+  const handleToggle = (officeId: string) => {
+    const next = toggleOfficeFav(currentUser.name, officeId);
+    setFavs(next);
+  };
+
+  const favourites = OFFICE_LOCATIONS.filter((o) => favs.includes(o.id));
+  const others = OFFICE_LOCATIONS.filter((o) => !favs.includes(o.id));
+  const ordered = [...favourites, ...others];
+
+  return (
+    <div
+      style={{
+        borderTop: `1px solid ${S.brd}`,
+        paddingTop: "15px",
+        marginBottom: "20px",
+      }}
+    >
+      <p
+        style={{
+          color: S.gold,
+          fontSize: "0.7rem",
+          marginBottom: "12px",
+          letterSpacing: "3px",
+          fontWeight: 900,
+        }}
+      >
+        OFFICE LOCATIONS
+      </p>
+
+      {favourites.length > 0 && (
+        <div
+          style={{
+            padding: "4px 10px",
+            background: "#0d0b00",
+            border: `1px solid ${S.gold}33`,
+            fontSize: "0.55rem",
+            color: S.gold,
+            letterSpacing: "3px",
+            fontWeight: 900,
+            marginBottom: "6px",
+          }}
+        >
+          ★ FAVOURITES
+        </div>
+      )}
+
+      {ordered.map((office) => {
+        const isFav = favs.includes(office.id);
+        return (
+          <div
+            key={office.id}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              padding: "10px 12px",
+              marginBottom: "6px",
+              background: isFav ? "#0a0800" : "#050505",
+              border: `1px solid ${isFav ? `${S.gold}55` : S.brd}`,
+            }}
+          >
+            <button
+              type="button"
+              title={isFav ? "REMOVE FAVOURITE" : "ADD FAVOURITE"}
+              onClick={() => handleToggle(office.id)}
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                padding: "0 4px 0 0",
+                color: isFav ? S.gold : S.dim,
+                fontSize: "1rem",
+                lineHeight: 1,
+                flexShrink: 0,
+              }}
+            >
+              {isFav ? "★" : "☆"}
+            </button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: "0.75rem",
+                  color: isFav ? S.gold : S.white,
+                  fontWeight: 900,
+                  letterSpacing: "1px",
+                }}
+              >
+                {office.name}
+              </div>
+              <div
+                style={{
+                  fontSize: "0.55rem",
+                  color: S.blue,
+                  letterSpacing: "2px",
+                  marginTop: "2px",
+                }}
+              >
+                {office.floor}
+              </div>
+              <div
+                style={{
+                  fontSize: "0.6rem",
+                  color: S.dim,
+                  letterSpacing: "1px",
+                  marginTop: "2px",
+                }}
+              >
+                {office.desc}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── SectorWorkspace ──────────────────────────────────────────────────────────
 
 function SectorWorkspace({
@@ -2694,7 +2970,15 @@ function SectorWorkspace({
     if (!ebMsg) return;
     setBroadcastMsg(ebMsg);
     setEbActive(true);
-    addActivity("EMERGENCY BROADCAST TOGGLED");
+    addActivity("EMERGENCY BROADCAST ACTIVATED");
+    onActivity();
+  };
+
+  const deactivateEB = () => {
+    setBroadcastMsg("");
+    setEbActive(false);
+    setEbMsg("");
+    addActivity("EMERGENCY BROADCAST DEACTIVATED");
     onActivity();
   };
 
@@ -2776,11 +3060,14 @@ function SectorWorkspace({
 
   return (
     <div
+      className="xution-scroll"
       style={{
         border: `1px solid ${S.brd}`,
         padding: "15px",
         marginBottom: "20px",
         background: "#080808",
+        maxHeight: "600px",
+        overflowY: "auto",
       }}
     >
       <h3
@@ -2795,6 +3082,17 @@ function SectorWorkspace({
       </h3>
 
       {/* Sector Logs */}
+      <p
+        style={{
+          color: S.blue,
+          fontSize: "0.7rem",
+          marginBottom: "8px",
+          letterSpacing: "3px",
+          fontWeight: 900,
+        }}
+      >
+        SECTOR LOGS
+      </p>
       <div
         className="xution-scroll"
         style={{
@@ -2954,6 +3252,11 @@ function SectorWorkspace({
         )}
       </div>
 
+      {/* Office Locations (Offices sector only) */}
+      {selectedSector === "Offices" && (
+        <OfficeLocations currentUser={currentUser} />
+      )}
+
       {/* Facility Menu */}
       <FacilityMenu
         currentUser={currentUser}
@@ -3040,6 +3343,21 @@ function SectorWorkspace({
           >
             ACTIVATE BROADCAST
           </button>
+          {ebActive && (
+            <button
+              type="button"
+              style={{
+                ...btnPrimary,
+                background: "#222",
+                color: S.red,
+                border: `1px solid ${S.red}`,
+                marginTop: "8px",
+              }}
+              onClick={deactivateEB}
+            >
+              DEACTIVATE BROADCAST
+            </button>
+          )}
         </div>
       )}
 
@@ -3094,141 +3412,281 @@ function SectorWorkspace({
             No posts available for your level.
           </p>
         ) : (
-          [...filteredPosts].reverse().map((p, i) => {
-            const postId = p.id || `${p.author}-${p.date}-${i}`;
-            const canModify =
-              currentUser.lvl === 6 || p.author === currentUser.name;
-            const isEditing = postId in editingPost;
-            return (
-              <div
-                key={`post-${postId}`}
-                style={{
-                  marginBottom: "10px",
-                  borderBottom: "1px solid #222",
-                  paddingBottom: "8px",
-                  fontSize: "0.75rem",
-                }}
-              >
+          <div
+            className="xution-scroll"
+            style={{
+              maxHeight: "250px",
+              overflowY: "auto",
+              border: `1px solid ${S.brd}`,
+              padding: "10px",
+              background: "#050505",
+              marginBottom: "10px",
+            }}
+          >
+            {[...filteredPosts].reverse().map((p, i) => {
+              const postId = p.id || `${p.author}-${p.date}-${i}`;
+              const canModify =
+                currentUser.lvl === 6 || p.author === currentUser.name;
+              const isEditing = postId in editingPost;
+              return (
                 <div
+                  key={`post-${postId}`}
                   style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-start",
-                    gap: "8px",
+                    marginBottom: "10px",
+                    borderBottom: "1px solid #222",
+                    paddingBottom: "8px",
+                    fontSize: "0.75rem",
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <strong style={{ color: S.gold }}>BY: {p.author}</strong>
-                    <br />
-                    <small style={{ color: S.dim }}>{p.date}</small>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "flex-start",
+                      gap: "8px",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <strong style={{ color: S.gold }}>BY: {p.author}</strong>
+                      <br />
+                      <small style={{ color: S.dim }}>{p.date}</small>
+                    </div>
+                    {canModify && !isEditing && (
+                      <div
+                        style={{ display: "flex", gap: "5px", flexShrink: 0 }}
+                      >
+                        <button
+                          type="button"
+                          style={{
+                            ...btnSmall,
+                            background: "#1a1500",
+                            color: S.gold,
+                            border: `1px solid ${S.gold}44`,
+                            padding: "4px 8px",
+                            flex: "none",
+                          }}
+                          onClick={() =>
+                            setEditingPost((prev) => ({
+                              ...prev,
+                              [postId]: p.content,
+                            }))
+                          }
+                        >
+                          EDIT
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            ...btnSmall,
+                            background: S.red,
+                            color: "#fff",
+                            padding: "4px 8px",
+                            flex: "none",
+                          }}
+                          onClick={() => p.id && deletePost(p.id)}
+                        >
+                          DELETE
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  {canModify && !isEditing && (
-                    <div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
-                      <button
-                        type="button"
-                        style={{
-                          ...btnSmall,
-                          background: "#1a1500",
-                          color: S.gold,
-                          border: `1px solid ${S.gold}44`,
-                          padding: "4px 8px",
-                          flex: "none",
-                        }}
-                        onClick={() =>
+
+                  {isEditing ? (
+                    <div style={{ marginTop: "6px" }}>
+                      <textarea
+                        value={editingPost[postId]}
+                        onChange={(e) =>
                           setEditingPost((prev) => ({
                             ...prev,
-                            [postId]: p.content,
+                            [postId]: e.target.value,
                           }))
                         }
-                      >
-                        EDIT
-                      </button>
-                      <button
-                        type="button"
                         style={{
-                          ...btnSmall,
-                          background: S.red,
-                          color: "#fff",
-                          padding: "4px 8px",
-                          flex: "none",
+                          ...textareaStyle,
+                          margin: "0 0 6px 0",
+                          minHeight: "60px",
+                          fontSize: "0.75rem",
                         }}
-                        onClick={() => p.id && deletePost(p.id)}
-                      >
-                        DELETE
-                      </button>
+                      />
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button
+                          type="button"
+                          style={{
+                            ...btnSmall,
+                            background: S.gold,
+                            color: "#000",
+                            padding: "6px 12px",
+                            flex: "none",
+                          }}
+                          onClick={() => {
+                            if (p.id) saveEditPost(p.id, editingPost[postId]);
+                            setEditingPost((prev) => {
+                              const next = { ...prev };
+                              delete next[postId];
+                              return next;
+                            });
+                          }}
+                        >
+                          SAVE
+                        </button>
+                        <button
+                          type="button"
+                          style={{
+                            ...btnSmall,
+                            background: "#222",
+                            color: S.dim,
+                            padding: "6px 12px",
+                            flex: "none",
+                          }}
+                          onClick={() =>
+                            setEditingPost((prev) => {
+                              const next = { ...prev };
+                              delete next[postId];
+                              return next;
+                            })
+                          }
+                        >
+                          CANCEL
+                        </button>
+                      </div>
                     </div>
+                  ) : (
+                    <p style={{ margin: "4px 0 0", color: S.white }}>
+                      {p.content}
+                    </p>
                   )}
                 </div>
-
-                {isEditing ? (
-                  <div style={{ marginTop: "6px" }}>
-                    <textarea
-                      value={editingPost[postId]}
-                      onChange={(e) =>
-                        setEditingPost((prev) => ({
-                          ...prev,
-                          [postId]: e.target.value,
-                        }))
-                      }
-                      style={{
-                        ...textareaStyle,
-                        margin: "0 0 6px 0",
-                        minHeight: "60px",
-                        fontSize: "0.75rem",
-                      }}
-                    />
-                    <div style={{ display: "flex", gap: "6px" }}>
-                      <button
-                        type="button"
-                        style={{
-                          ...btnSmall,
-                          background: S.gold,
-                          color: "#000",
-                          padding: "6px 12px",
-                          flex: "none",
-                        }}
-                        onClick={() => {
-                          if (p.id) saveEditPost(p.id, editingPost[postId]);
-                          setEditingPost((prev) => {
-                            const next = { ...prev };
-                            delete next[postId];
-                            return next;
-                          });
-                        }}
-                      >
-                        SAVE
-                      </button>
-                      <button
-                        type="button"
-                        style={{
-                          ...btnSmall,
-                          background: "#222",
-                          color: S.dim,
-                          padding: "6px 12px",
-                          flex: "none",
-                        }}
-                        onClick={() =>
-                          setEditingPost((prev) => {
-                            const next = { ...prev };
-                            delete next[postId];
-                            return next;
-                          })
-                        }
-                      >
-                        CANCEL
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <p style={{ margin: "4px 0 0", color: S.white }}>
-                    {p.content}
-                  </p>
-                )}
-              </div>
-            );
-          })
+              );
+            })}
+          </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── EditableSection ──────────────────────────────────────────────────────────
+
+function EditableSection({
+  title,
+  storageKey,
+  defaultContent,
+  currentUser,
+  renderContent,
+}: {
+  title: string;
+  storageKey: string;
+  defaultContent: string;
+  currentUser: CurrentUser | null;
+  renderContent: (text: string) => React.ReactNode;
+}) {
+  const isSovereign = currentUser?.lvl === 6;
+  const [content, setContent] = useState(() =>
+    getAboutContent(storageKey, defaultContent),
+  );
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const startEdit = () => {
+    setDraft(content);
+    setEditing(true);
+  };
+
+  const saveEdit = () => {
+    setAboutContent(storageKey, draft);
+    setContent(draft);
+    setEditing(false);
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+  };
+
+  return (
+    <div style={{ marginTop: "30px" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "10px",
+          marginBottom: "0",
+        }}
+      >
+        <h2
+          style={{
+            borderLeft: `5px solid ${S.gold}`,
+            paddingLeft: "15px",
+            fontSize: "1rem",
+            letterSpacing: "3px",
+            margin: 0,
+          }}
+        >
+          {title}
+        </h2>
+        {isSovereign && !editing && (
+          <button
+            type="button"
+            onClick={startEdit}
+            style={{
+              ...btnSmall,
+              background: "#1a1500",
+              color: S.gold,
+              border: `1px solid ${S.gold}44`,
+              padding: "5px 10px",
+              flex: "none",
+              fontSize: "0.6rem",
+            }}
+          >
+            EDIT
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <div style={{ marginTop: "12px" }}>
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            style={{
+              ...textareaStyle,
+              minHeight: "120px",
+              fontSize: "0.8rem",
+              margin: "0 0 8px 0",
+            }}
+          />
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              style={{
+                ...btnSmall,
+                background: S.gold,
+                color: "#000",
+                padding: "8px 16px",
+                flex: "none",
+              }}
+              onClick={saveEdit}
+            >
+              SAVE
+            </button>
+            <button
+              type="button"
+              style={{
+                ...btnSmall,
+                background: "#222",
+                color: S.dim,
+                padding: "8px 16px",
+                flex: "none",
+              }}
+              onClick={cancelEdit}
+            >
+              CANCEL
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ marginTop: "15px" }}>{renderContent(content)}</div>
+      )}
     </div>
   );
 }
@@ -3291,6 +3749,12 @@ export default function App() {
     refreshActivities();
   };
 
+  const deactivateEB = () => {
+    setBroadcastMsg("");
+    setEbActive(false);
+    setEbMsg("");
+  };
+
   const handleLogout = () => {
     window.location.reload();
   };
@@ -3320,9 +3784,36 @@ export default function App() {
             fontSize: "0.8rem",
             letterSpacing: "2px",
             borderBottom: "2px solid #fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "12px",
           }}
         >
-          ⚠️ EMERGENCY BROADCAST ACTIVE ⚠️{ebMsg ? ` — ${ebMsg}` : ""}
+          <span>
+            ⚠️ EMERGENCY BROADCAST ACTIVE ⚠️{ebMsg ? ` — ${ebMsg}` : ""}
+          </span>
+          {user && user.lvl === 6 && (
+            <button
+              type="button"
+              onClick={deactivateEB}
+              style={{
+                background: "#000",
+                color: S.red,
+                border: "1px solid #fff",
+                padding: "3px 10px",
+                fontSize: "0.65rem",
+                fontFamily: "inherit",
+                fontWeight: 900,
+                cursor: "pointer",
+                textTransform: "uppercase",
+                letterSpacing: "1px",
+                flexShrink: 0,
+              }}
+            >
+              DISABLE
+            </button>
+          )}
         </div>
       )}
 
@@ -3772,85 +4263,71 @@ export default function App() {
             paddingTop: "30px",
           }}
         >
-          <h2
-            style={{
-              borderLeft: `5px solid ${S.gold}`,
-              paddingLeft: "15px",
-              fontSize: "1rem",
-              letterSpacing: "3px",
-            }}
-          >
-            ABOUT XUTION
-          </h2>
-          <p
-            style={{
-              marginTop: "15px",
-              fontSize: "0.85rem",
-              opacity: 0.8,
-              lineHeight: 1.8,
-            }}
-          >
-            <strong>Project Leader:</strong> Creature Subliminals
-            <br />
-            <strong>Aka:</strong> Unity
-            <br />
-            <strong>Co-Founder:</strong> Syndelious
-            <br />
-            <strong>Purpose:</strong> This platform was created because existing
-            chat platforms did not honor user terms, lacked logic, and did not
-            make sense for our workflow. Xution provides a fully functional hub
-            for operations, member management, and sector control.
-          </p>
+          <EditableSection
+            title="ABOUT XUTION"
+            storageKey="x_about_content_v1"
+            defaultContent={DEFAULT_ABOUT_CONTENT}
+            currentUser={user}
+            renderContent={(text) => (
+              <p
+                style={{
+                  fontSize: "0.85rem",
+                  opacity: 0.8,
+                  lineHeight: 1.8,
+                  whiteSpace: "pre-wrap",
+                  margin: 0,
+                }}
+              >
+                {text}
+              </p>
+            )}
+          />
 
-          <h2
-            style={{
-              borderLeft: `5px solid ${S.gold}`,
-              paddingLeft: "15px",
-              marginTop: "30px",
-              fontSize: "1rem",
-              letterSpacing: "3px",
-            }}
-          >
-            FEATURES & CREDITS
-          </h2>
-          <ul
-            style={{
-              marginTop: "15px",
-              fontSize: "0.8rem",
-              opacity: 0.85,
-              listStyleType: "disc",
-              paddingLeft: "25px",
-              lineHeight: 2,
-            }}
-          >
-            <li>Full authentication system with registration & login</li>
-            <li>Member management (levels, delete, IMMUTABLE for key IDs)</li>
-            <li>
-              Sector access with logs, admin posts, and emergency broadcast
-            </li>
-            <li>Activity feed showing last 24 hours of actions</li>
-            <li>Collapsible member directory with direct messaging</li>
-            <li>Facility directory with interactive tiles</li>
-            <li>Contact command quick-link via email</li>
-            <li>Emergency broadcast banner for critical alerts</li>
-          </ul>
+          <EditableSection
+            title="FEATURES & CREDITS"
+            storageKey="x_features_content_v1"
+            defaultContent={DEFAULT_FEATURES_CONTENT}
+            currentUser={user}
+            renderContent={(text) => (
+              <ul
+                style={{
+                  fontSize: "0.8rem",
+                  opacity: 0.85,
+                  listStyleType: "disc",
+                  paddingLeft: "25px",
+                  lineHeight: 2,
+                  margin: 0,
+                }}
+              >
+                {text
+                  .split("\n")
+                  .filter((line) => line.trim())
+                  .map((line, i) => (
+                    // biome-ignore lint/suspicious/noArrayIndexKey: static list
+                    <li key={i}>{line.trim()}</li>
+                  ))}
+              </ul>
+            )}
+          />
 
-          <h2
-            style={{
-              borderLeft: `5px solid ${S.gold}`,
-              paddingLeft: "15px",
-              marginTop: "30px",
-              fontSize: "1rem",
-              letterSpacing: "3px",
-            }}
-          >
-            CREDITS
-          </h2>
-          <p style={{ fontSize: "0.8rem", opacity: 0.7, marginTop: "15px" }}>
-            Code base written by Creature Subliminals (Unity) with assistance
-            from ChatGPT. All local data is stored in browser localStorage for
-            easy persistence and testing.
-          </p>
+          <EditableSection
+            title="CREDITS"
+            storageKey="x_credits_content_v1"
+            defaultContent={DEFAULT_CREDITS_CONTENT}
+            currentUser={user}
+            renderContent={(text) => (
+              <p
+                style={{
+                  fontSize: "0.8rem",
+                  opacity: 0.7,
+                  whiteSpace: "pre-wrap",
+                  margin: 0,
+                }}
+              >
+                {text}
+              </p>
+            )}
+          />
         </div>
       </div>
 
