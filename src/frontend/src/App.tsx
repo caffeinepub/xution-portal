@@ -250,7 +250,14 @@ function getCardExpiry(uid: string | undefined): string {
 
 // ─── Office Location helpers ─────────────────────────────────────────────────
 
-const OFFICE_LOCATIONS = [
+interface OfficeLocation {
+  id: string;
+  name: string;
+  floor: string;
+  desc: string;
+}
+
+const DEFAULT_OFFICE_LOCATIONS: OfficeLocation[] = [
   {
     id: "OFC-ALPHA",
     name: "ALPHA COMMAND",
@@ -282,6 +289,16 @@ const OFFICE_LOCATIONS = [
     desc: "Sovereign council chamber.",
   },
 ];
+
+function getOfficeLocations(): OfficeLocation[] {
+  const stored = localStorage.getItem("x_office_locations_v1");
+  if (stored) return JSON.parse(stored) as OfficeLocation[];
+  return DEFAULT_OFFICE_LOCATIONS;
+}
+
+function setOfficeLocations(locations: OfficeLocation[]): void {
+  localStorage.setItem("x_office_locations_v1", JSON.stringify(locations));
+}
 
 function getOfficeFavsKey(me: string): string {
   return `x_office_favs_${me}`;
@@ -2225,6 +2242,445 @@ function getTotalUnreadDMs(me: string): number {
     .reduce((sum, n) => sum + getDMUnreadCount(me, n), 0);
 }
 
+// ─── OfficeLocations ──────────────────────────────────────────────────────────
+
+function OfficeLocations({
+  currentUser,
+  onSelect,
+  selectedId,
+}: {
+  currentUser: CurrentUser;
+  onSelect?: (office: OfficeLocation | null) => void;
+  selectedId?: string | null;
+}) {
+  const isSovereign = currentUser.lvl === 6;
+  const [locations, setLocations] =
+    useState<OfficeLocation[]>(getOfficeLocations);
+  const [favs, setFavs] = useState<string[]>(() =>
+    getOfficeFavs(currentUser.name),
+  );
+  const [addOpen, setAddOpen] = useState(false);
+  const [addName, setAddName] = useState("");
+  const [addFloor, setAddFloor] = useState("");
+  const [addDesc, setAddDesc] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editFloor, setEditFloor] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+
+  const handleToggle = (officeId: string) => {
+    const next = toggleOfficeFav(currentUser.name, officeId);
+    setFavs(next);
+  };
+
+  const handleAdd = () => {
+    const name = addName.trim();
+    const floor = addFloor.trim();
+    if (!name) return;
+    const newOffice: OfficeLocation = {
+      id: `OFC-${Date.now()}`,
+      name,
+      floor: floor || "–",
+      desc: addDesc.trim(),
+    };
+    const updated = [...locations, newOffice];
+    setOfficeLocations(updated);
+    setLocations(updated);
+    setAddName("");
+    setAddFloor("");
+    setAddDesc("");
+    setAddOpen(false);
+  };
+
+  const startEdit = (office: OfficeLocation) => {
+    setEditingId(office.id);
+    setEditName(office.name);
+    setEditFloor(office.floor);
+    setEditDesc(office.desc);
+  };
+
+  const saveEdit = (officeId: string) => {
+    const name = editName.trim();
+    if (!name) return;
+    const updated = locations.map((o) =>
+      o.id === officeId
+        ? { ...o, name, floor: editFloor.trim() || "–", desc: editDesc.trim() }
+        : o,
+    );
+    setOfficeLocations(updated);
+    setLocations(updated);
+    setEditingId(null);
+  };
+
+  const handleDelete = (officeId: string) => {
+    if (!window.confirm("DELETE THIS OFFICE LOCATION?")) return;
+    const updated = locations.filter((o) => o.id !== officeId);
+    setOfficeLocations(updated);
+    setLocations(updated);
+    const newFavs = favs.filter((f) => f !== officeId);
+    if (newFavs.length !== favs.length) {
+      localStorage.setItem(
+        getOfficeFavsKey(currentUser.name),
+        JSON.stringify(newFavs),
+      );
+      setFavs(newFavs);
+    }
+  };
+
+  const favourites = locations.filter((o) => favs.includes(o.id));
+  const others = locations.filter((o) => !favs.includes(o.id));
+  const ordered = [...favourites, ...others];
+
+  return (
+    <div
+      style={{
+        borderTop: `1px solid ${S.brd}`,
+        paddingTop: "15px",
+        marginBottom: "20px",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "12px",
+        }}
+      >
+        <p
+          style={{
+            color: S.gold,
+            fontSize: "0.7rem",
+            margin: 0,
+            letterSpacing: "3px",
+            fontWeight: 900,
+          }}
+        >
+          OFFICE LOCATIONS
+        </p>
+        {isSovereign && (
+          <button
+            type="button"
+            data-ocid="office.add_button"
+            onClick={() => setAddOpen((v) => !v)}
+            style={{
+              ...btnSmall,
+              background: addOpen ? "#0a0800" : S.gold,
+              color: addOpen ? S.gold : "#000",
+              border: `1px solid ${S.gold}`,
+              padding: "4px 10px",
+              flex: "none",
+              fontSize: "0.6rem",
+            }}
+          >
+            {addOpen ? "CANCEL ▲" : "+ ADD OFFICE"}
+          </button>
+        )}
+      </div>
+
+      {isSovereign && addOpen && (
+        <div
+          style={{
+            border: `1px solid ${S.gold}44`,
+            background: "#0a0800",
+            padding: "12px",
+            marginBottom: "12px",
+          }}
+        >
+          <input
+            type="text"
+            placeholder="OFFICE NAME"
+            value={addName}
+            onChange={(e) => setAddName(e.target.value)}
+            data-ocid="office.add.name_input"
+            style={{ ...inputStyle, marginBottom: "0" }}
+          />
+          <input
+            type="text"
+            placeholder="FLOOR / LOCATION"
+            value={addFloor}
+            onChange={(e) => setAddFloor(e.target.value)}
+            data-ocid="office.add.floor_input"
+            style={{ ...inputStyle, marginBottom: "0" }}
+          />
+          <input
+            type="text"
+            placeholder="DESCRIPTION (OPTIONAL)"
+            value={addDesc}
+            onChange={(e) => setAddDesc(e.target.value)}
+            data-ocid="office.add.desc_input"
+            style={{ ...inputStyle, marginBottom: "0" }}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+          />
+          <button
+            type="button"
+            data-ocid="office.add.submit_button"
+            style={{ ...btnPrimary, marginTop: "10px" }}
+            onClick={handleAdd}
+          >
+            ADD OFFICE
+          </button>
+        </div>
+      )}
+
+      {favourites.length > 0 && (
+        <div
+          style={{
+            padding: "4px 10px",
+            background: "#0d0b00",
+            border: `1px solid ${S.gold}33`,
+            fontSize: "0.55rem",
+            color: S.gold,
+            letterSpacing: "3px",
+            fontWeight: 900,
+            marginBottom: "6px",
+          }}
+        >
+          ★ FAVOURITES
+        </div>
+      )}
+
+      {ordered.length === 0 && (
+        <p style={{ color: S.dim, fontSize: "0.65rem", letterSpacing: "2px" }}>
+          NO OFFICE LOCATIONS
+        </p>
+      )}
+
+      {ordered.map((office, idx) => {
+        const isFav = favs.includes(office.id);
+        const isEditing = editingId === office.id;
+        const isSelected = selectedId === office.id;
+        return (
+          <div
+            key={office.id}
+            data-ocid={`office.item.${idx + 1}`}
+            style={{
+              padding: "10px 12px",
+              marginBottom: "6px",
+              background: isSelected
+                ? "#0d1a00"
+                : isFav
+                  ? "#0a0800"
+                  : "#050505",
+              border: `1px solid ${isSelected ? S.green : isFav ? `${S.gold}55` : S.brd}`,
+              cursor: onSelect && !isEditing ? "pointer" : "default",
+            }}
+            onClick={() => {
+              if (!onSelect || isEditing) return;
+              onSelect(isSelected ? null : office);
+            }}
+            onKeyDown={(e) => {
+              if (!onSelect || isEditing) return;
+              if (e.key === "Enter" || e.key === " ")
+                onSelect(isSelected ? null : office);
+            }}
+          >
+            {isEditing ? (
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+              >
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  placeholder="OFFICE NAME"
+                  data-ocid={`office.edit.name_input.${idx + 1}`}
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    fontSize: "0.75rem",
+                    padding: "6px 10px",
+                  }}
+                />
+                <input
+                  type="text"
+                  value={editFloor}
+                  onChange={(e) => setEditFloor(e.target.value)}
+                  placeholder="FLOOR / LOCATION"
+                  data-ocid={`office.edit.floor_input.${idx + 1}`}
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    fontSize: "0.75rem",
+                    padding: "6px 10px",
+                  }}
+                />
+                <input
+                  type="text"
+                  value={editDesc}
+                  onChange={(e) => setEditDesc(e.target.value)}
+                  placeholder="DESCRIPTION"
+                  data-ocid={`office.edit.desc_input.${idx + 1}`}
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    fontSize: "0.75rem",
+                    padding: "6px 10px",
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && saveEdit(office.id)}
+                />
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button
+                    type="button"
+                    data-ocid={`office.edit.save_button.${idx + 1}`}
+                    style={{
+                      ...btnSmall,
+                      background: S.gold,
+                      color: "#000",
+                      padding: "6px 12px",
+                      flex: "none",
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      saveEdit(office.id);
+                    }}
+                  >
+                    SAVE
+                  </button>
+                  <button
+                    type="button"
+                    data-ocid={`office.edit.cancel_button.${idx + 1}`}
+                    style={{
+                      ...btnSmall,
+                      background: "#222",
+                      color: S.dim,
+                      padding: "6px 12px",
+                      flex: "none",
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingId(null);
+                    }}
+                  >
+                    CANCEL
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                }}
+              >
+                <button
+                  type="button"
+                  title={isFav ? "REMOVE FAVOURITE" : "ADD FAVOURITE"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleToggle(office.id);
+                  }}
+                  data-ocid={`office.fav_toggle.${idx + 1}`}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    padding: "0 4px 0 0",
+                    color: isFav ? S.gold : S.dim,
+                    fontSize: "1rem",
+                    lineHeight: 1,
+                    flexShrink: 0,
+                    marginTop: "2px",
+                  }}
+                >
+                  {isFav ? "★" : "☆"}
+                </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: "0.75rem",
+                      color: isSelected ? S.green : isFav ? S.gold : S.white,
+                      fontWeight: 900,
+                      letterSpacing: "1px",
+                    }}
+                  >
+                    {office.name}
+                    {isSelected && (
+                      <span
+                        style={{
+                          color: S.green,
+                          fontSize: "0.55rem",
+                          marginLeft: "8px",
+                        }}
+                      >
+                        ◈ ACTIVE
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.55rem",
+                      color: S.blue,
+                      letterSpacing: "2px",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {office.floor}
+                  </div>
+                  {office.desc && (
+                    <div
+                      style={{
+                        fontSize: "0.6rem",
+                        color: S.dim,
+                        letterSpacing: "1px",
+                        marginTop: "2px",
+                      }}
+                    >
+                      {office.desc}
+                    </div>
+                  )}
+                </div>
+                {isSovereign && (
+                  <div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      data-ocid={`office.edit_button.${idx + 1}`}
+                      style={{
+                        ...btnSmall,
+                        background: "#1a1500",
+                        color: S.gold,
+                        border: `1px solid ${S.gold}44`,
+                        padding: "4px 8px",
+                        flex: "none",
+                        fontSize: "0.6rem",
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEdit(office);
+                      }}
+                    >
+                      EDIT
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid={`office.delete_button.${idx + 1}`}
+                      style={{
+                        ...btnSmall,
+                        background: S.red,
+                        color: "#fff",
+                        padding: "4px 8px",
+                        flex: "none",
+                        fontSize: "0.6rem",
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(office.id);
+                      }}
+                    >
+                      DELETE
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── MemberList (collapsible, all users) ─────────────────────────────────────
 
 function MemberList({
@@ -2245,7 +2701,6 @@ function MemberList({
     getTotalUnreadDMs(currentUser.name),
   );
 
-  // Poll total unread count every 3 seconds
   useEffect(() => {
     const id = setInterval(() => {
       setTotalUnread(getTotalUnreadDMs(currentUser.name));
@@ -2299,7 +2754,6 @@ function MemberList({
 
   return (
     <div style={{ marginBottom: "30px" }}>
-      {/* Collapsible Header */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -2368,7 +2822,6 @@ function MemberList({
         </span>
       </button>
 
-      {/* Member Rows */}
       {expanded && (
         <div
           className="xution-scroll"
@@ -2393,7 +2846,6 @@ function MemberList({
             </div>
           ) : (
             <>
-              {/* Favourites subsection */}
               {favouriteNames.length > 0 && (
                 <>
                   <div
@@ -2434,8 +2886,6 @@ function MemberList({
                   )}
                 </>
               )}
-
-              {/* All other members */}
               {otherNames.map((memberName) => (
                 <MemberRow
                   key={memberName}
@@ -2477,7 +2927,6 @@ function FacilityMenu({
     getFunds(currentUser.name),
   );
 
-  // Refresh items and funds when facility changes
   useEffect(() => {
     setItemsState(getFacilityMenu(facility));
   }, [facility]);
@@ -2494,23 +2943,19 @@ function FacilityMenu({
 
   const handlePurchase = (item: MenuItem) => {
     setErrors((prev) => ({ ...prev, [item.id]: "" }));
-
     if (!isSovereign && item.price > funds) {
       setErrors((prev) => ({ ...prev, [item.id]: "INSUFFICIENT FUNDS" }));
       setTimeout(() => setErrors((prev) => ({ ...prev, [item.id]: "" })), 2000);
       return;
     }
-
     const prevAmount = funds;
     const newAmount = isSovereign
       ? prevAmount
       : Number.parseFloat((prevAmount - item.price).toFixed(2));
-
     if (!isSovereign) {
       setFunds(currentUser.name, newAmount);
       setFundsState(newAmount);
     }
-
     addTransaction({
       member: currentUser.name,
       prevAmount,
@@ -2523,7 +2968,6 @@ function FacilityMenu({
       `PURCHASE: ${item.name} FROM ${facility} BY ${currentUser.name}`,
     );
     onActivity();
-
     setSuccessIds((prev) => ({ ...prev, [item.id]: true }));
     setTimeout(
       () => setSuccessIds((prev) => ({ ...prev, [item.id]: false })),
@@ -2536,7 +2980,6 @@ function FacilityMenu({
     const price = Number.parseFloat(newPrice);
     if (!name) return;
     if (Number.isNaN(price) || price < 0) return;
-
     const allItems = getMenuItems();
     const newItem: MenuItem = {
       id: Date.now().toString(),
@@ -2572,7 +3015,6 @@ function FacilityMenu({
         marginBottom: "20px",
       }}
     >
-      {/* Section header */}
       <p
         style={{
           color: S.gold,
@@ -2584,8 +3026,6 @@ function FacilityMenu({
       >
         FACILITY MENU
       </p>
-
-      {/* Item list */}
       {items.length === 0 ? (
         <p
           style={{
@@ -2612,7 +3052,6 @@ function FacilityMenu({
                 gap: "6px",
               }}
             >
-              {/* Item name + price row */}
               <div
                 style={{
                   display: "flex",
@@ -2657,8 +3096,6 @@ function FacilityMenu({
                   {formatFunds(item.price)}
                 </div>
               </div>
-
-              {/* Action buttons row */}
               <div style={{ display: "flex", gap: "6px" }}>
                 <button
                   type="button"
@@ -2719,8 +3156,6 @@ function FacilityMenu({
           ))}
         </div>
       )}
-
-      {/* L6 — Add Item form */}
       {isSovereign && (
         <div>
           <button
@@ -2742,7 +3177,6 @@ function FacilityMenu({
           >
             ADD MENU ITEM {addOpen ? "▲" : "▼"}
           </button>
-
           {addOpen && (
             <div
               style={{
@@ -2790,144 +3224,26 @@ function FacilityMenu({
   );
 }
 
-// ─── OfficeLocations ──────────────────────────────────────────────────────────
-
-function OfficeLocations({ currentUser }: { currentUser: CurrentUser }) {
-  const [favs, setFavs] = useState<string[]>(() =>
-    getOfficeFavs(currentUser.name),
-  );
-
-  const handleToggle = (officeId: string) => {
-    const next = toggleOfficeFav(currentUser.name, officeId);
-    setFavs(next);
-  };
-
-  const favourites = OFFICE_LOCATIONS.filter((o) => favs.includes(o.id));
-  const others = OFFICE_LOCATIONS.filter((o) => !favs.includes(o.id));
-  const ordered = [...favourites, ...others];
-
-  return (
-    <div
-      style={{
-        borderTop: `1px solid ${S.brd}`,
-        paddingTop: "15px",
-        marginBottom: "20px",
-      }}
-    >
-      <p
-        style={{
-          color: S.gold,
-          fontSize: "0.7rem",
-          marginBottom: "12px",
-          letterSpacing: "3px",
-          fontWeight: 900,
-        }}
-      >
-        OFFICE LOCATIONS
-      </p>
-
-      {favourites.length > 0 && (
-        <div
-          style={{
-            padding: "4px 10px",
-            background: "#0d0b00",
-            border: `1px solid ${S.gold}33`,
-            fontSize: "0.55rem",
-            color: S.gold,
-            letterSpacing: "3px",
-            fontWeight: 900,
-            marginBottom: "6px",
-          }}
-        >
-          ★ FAVOURITES
-        </div>
-      )}
-
-      {ordered.map((office) => {
-        const isFav = favs.includes(office.id);
-        return (
-          <div
-            key={office.id}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "10px",
-              padding: "10px 12px",
-              marginBottom: "6px",
-              background: isFav ? "#0a0800" : "#050505",
-              border: `1px solid ${isFav ? `${S.gold}55` : S.brd}`,
-            }}
-          >
-            <button
-              type="button"
-              title={isFav ? "REMOVE FAVOURITE" : "ADD FAVOURITE"}
-              onClick={() => handleToggle(office.id)}
-              style={{
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                padding: "0 4px 0 0",
-                color: isFav ? S.gold : S.dim,
-                fontSize: "1rem",
-                lineHeight: 1,
-                flexShrink: 0,
-              }}
-            >
-              {isFav ? "★" : "☆"}
-            </button>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: "0.75rem",
-                  color: isFav ? S.gold : S.white,
-                  fontWeight: 900,
-                  letterSpacing: "1px",
-                }}
-              >
-                {office.name}
-              </div>
-              <div
-                style={{
-                  fontSize: "0.55rem",
-                  color: S.blue,
-                  letterSpacing: "2px",
-                  marginTop: "2px",
-                }}
-              >
-                {office.floor}
-              </div>
-              <div
-                style={{
-                  fontSize: "0.6rem",
-                  color: S.dim,
-                  letterSpacing: "1px",
-                  marginTop: "2px",
-                }}
-              >
-                {office.desc}
-              </div>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── SectorWorkspace ──────────────────────────────────────────────────────────
 
 function SectorWorkspace({
   currentUser,
   selectedSector,
   onActivity,
+  activeOffice,
 }: {
   currentUser: CurrentUser;
   selectedSector: string;
   onActivity: () => void;
+  activeOffice: OfficeLocation | null;
 }) {
   const [logs, setLogs] = useState<SectorLog[]>(getSectorLogs);
   const [adminPosts, setAdminPostsState] = useState<AdminPost[]>(getAdminPosts);
   const [ebMsg, setEbMsg] = useState("");
+  // Selected office within the Offices sector (for browsing the list)
+  const [selectedOffice, setSelectedOffice] = useState<OfficeLocation | null>(
+    null,
+  );
   const [ebActive, setEbActive] = useState(!!getBroadcastMsg());
 
   // Log form state
@@ -2953,7 +3269,7 @@ function SectorWorkspace({
     const allLogs = getSectorLogs();
     allLogs.push({
       id: Date.now().toString(),
-      sector: selectedSector,
+      sector: activeSectorKey,
       title: logTitle,
       body: logBody,
       author: currentUser.name,
@@ -2991,7 +3307,7 @@ function SectorWorkspace({
       content: postTxt,
       minLvl: postMinLvl,
       date: new Date().toLocaleString(),
-      sector: selectedSector,
+      sector: activeSectorKey,
     });
     setAdminPosts(posts);
     setPostTxt("");
@@ -3034,6 +3350,12 @@ function SectorWorkspace({
     onActivity();
   };
 
+  // Reset selected office when sector changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: selectedSector is a prop that drives this reset
+  useEffect(() => {
+    setSelectedOffice(null);
+  }, [selectedSector]);
+
   // Update EB banner in parent
   useEffect(() => {
     const stored = getBroadcastMsg();
@@ -3048,14 +3370,23 @@ function SectorWorkspace({
     window.dispatchEvent(event);
   }, [ebActive]);
 
+  // Use the global active office (if set) as a namespace prefix for facility data.
+  // Within the Offices sector, a locally-selected office overrides for browsing.
+  const activeSectorKey = activeOffice
+    ? `${activeOffice.name}::${selectedSector}`
+    : selectedOffice
+      ? selectedOffice.name
+      : selectedSector;
+
   const filteredLogs = logs
-    .filter((l) => l.sector === selectedSector)
+    .filter((l) => l.sector === activeSectorKey)
     .slice()
     .reverse();
 
   const filteredPosts = adminPosts.filter(
     (p) =>
-      p.minLvl <= currentUser.lvl && (!p.sector || p.sector === selectedSector),
+      p.minLvl <= currentUser.lvl &&
+      (!p.sector || p.sector === activeSectorKey),
   );
 
   return (
@@ -3073,13 +3404,62 @@ function SectorWorkspace({
       <h3
         style={{
           color: S.gold,
-          marginBottom: "15px",
+          marginBottom: "4px",
           fontSize: "0.9rem",
           letterSpacing: "2px",
         }}
       >
         {selectedSector}
+        {selectedOffice && (
+          <span
+            style={{
+              color: S.green,
+              fontSize: "0.75rem",
+              marginLeft: "10px",
+              letterSpacing: "1px",
+            }}
+          >
+            › {selectedOffice.name}
+          </span>
+        )}
       </h3>
+      {selectedOffice && (
+        <div style={{ marginBottom: "15px" }}>
+          <div
+            style={{
+              fontSize: "0.6rem",
+              color: S.blue,
+              letterSpacing: "2px",
+              marginBottom: "2px",
+            }}
+          >
+            {selectedOffice.floor}
+          </div>
+          {selectedOffice.desc && (
+            <div
+              style={{ fontSize: "0.6rem", color: S.dim, letterSpacing: "1px" }}
+            >
+              {selectedOffice.desc}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setSelectedOffice(null)}
+            style={{
+              ...btnSmall,
+              background: "transparent",
+              color: S.dim,
+              border: `1px solid ${S.brd}`,
+              padding: "3px 8px",
+              flex: "none",
+              fontSize: "0.55rem",
+              marginTop: "6px",
+            }}
+          >
+            ← BACK TO OFFICES
+          </button>
+        </div>
+      )}
 
       {/* Sector Logs */}
       <p
@@ -3253,14 +3633,20 @@ function SectorWorkspace({
       </div>
 
       {/* Office Locations (Offices sector only) */}
-      {selectedSector === "Offices" && (
-        <OfficeLocations currentUser={currentUser} />
+      {selectedSector === "Offices" && !selectedOffice && (
+        <OfficeLocations
+          currentUser={currentUser}
+          onSelect={setSelectedOffice}
+          selectedId={
+            selectedOffice ? (selectedOffice as OfficeLocation).id : null
+          }
+        />
       )}
 
       {/* Facility Menu */}
       <FacilityMenu
         currentUser={currentUser}
-        facility={selectedSector}
+        facility={activeSectorKey}
         onActivity={onActivity}
       />
 
@@ -3703,6 +4089,9 @@ export default function App() {
   const [dmTarget, setDmTarget] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  // Global active office — determines which office's data is shown for all facilities
+  const [activeOffice, setActiveOffice] = useState<OfficeLocation | null>(null);
+  const [officePickerOpen, setOfficePickerOpen] = useState(false);
 
   const refreshActivities = useCallback(() => {
     setActivities(get24hActivities());
@@ -4156,6 +4545,191 @@ export default function App() {
           />
         )}
 
+        {/* Active Office Selector — above Facilities */}
+        {user && (
+          <div style={{ marginBottom: "16px" }}>
+            {/* Banner row */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "10px 15px",
+                background: activeOffice ? "#0d1a00" : "#080808",
+                border: `1px solid ${activeOffice ? S.green : S.brd}`,
+                borderLeft: `5px solid ${activeOffice ? S.green : S.dim}`,
+                gap: "10px",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: "0.5rem",
+                    color: S.dim,
+                    letterSpacing: "3px",
+                    marginBottom: "3px",
+                  }}
+                >
+                  ACTIVE OFFICE
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.8rem",
+                    color: activeOffice ? S.green : S.dim,
+                    fontWeight: 900,
+                    letterSpacing: "2px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {activeOffice ? activeOffice.name : "NONE SELECTED"}
+                </div>
+                {activeOffice && (
+                  <div
+                    style={{
+                      fontSize: "0.5rem",
+                      color: S.blue,
+                      letterSpacing: "2px",
+                      marginTop: "2px",
+                    }}
+                  >
+                    {activeOffice.floor}
+                  </div>
+                )}
+              </div>
+              <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                <button
+                  type="button"
+                  data-ocid="office_selector.open_modal_button"
+                  onClick={() => setOfficePickerOpen((v) => !v)}
+                  style={{
+                    ...btnSmall,
+                    background: officePickerOpen ? "#222" : S.gold,
+                    color: officePickerOpen ? S.dim : "#000",
+                    border: `1px solid ${S.gold}`,
+                    padding: "5px 10px",
+                    flex: "none",
+                    fontSize: "0.6rem",
+                  }}
+                >
+                  {officePickerOpen ? "CLOSE ▲" : "CHANGE ▼"}
+                </button>
+                {activeOffice && (
+                  <button
+                    type="button"
+                    data-ocid="office_selector.clear_button"
+                    onClick={() => {
+                      setActiveOffice(null);
+                      setOfficePickerOpen(false);
+                    }}
+                    style={{
+                      ...btnSmall,
+                      background: S.red,
+                      color: "#fff",
+                      padding: "5px 8px",
+                      flex: "none",
+                      fontSize: "0.6rem",
+                    }}
+                  >
+                    CLEAR
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Office picker dropdown */}
+            {officePickerOpen && (
+              <div
+                className="xution-scroll"
+                style={{
+                  border: `1px solid ${S.brd}`,
+                  borderTop: "none",
+                  background: "#050505",
+                  maxHeight: "220px",
+                  overflowY: "auto",
+                }}
+              >
+                {getOfficeLocations().length === 0 ? (
+                  <div
+                    style={{
+                      padding: "12px 15px",
+                      color: S.dim,
+                      fontSize: "0.65rem",
+                      letterSpacing: "2px",
+                    }}
+                  >
+                    NO OFFICE LOCATIONS CONFIGURED
+                  </div>
+                ) : (
+                  getOfficeLocations().map((office, idx) => {
+                    const isActive = activeOffice?.id === office.id;
+                    return (
+                      <button
+                        type="button"
+                        key={office.id}
+                        data-ocid={`office_selector.item.${idx + 1}`}
+                        onClick={() => {
+                          setActiveOffice(isActive ? null : office);
+                          setOfficePickerOpen(false);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          width: "100%",
+                          padding: "10px 15px",
+                          background: isActive ? "#0d1a00" : "transparent",
+                          border: "none",
+                          borderBottom: `1px solid ${S.brd}`,
+                          cursor: "pointer",
+                          textAlign: "left",
+                          fontFamily:
+                            "'JetBrains Mono', 'Courier New', monospace",
+                          fontWeight: 900,
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: isActive ? S.green : S.dim,
+                            fontSize: "0.75rem",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {isActive ? "◈" : "○"}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontSize: "0.75rem",
+                              color: isActive ? S.green : S.white,
+                              fontWeight: 900,
+                              letterSpacing: "1px",
+                            }}
+                          >
+                            {office.name}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "0.5rem",
+                              color: S.blue,
+                              letterSpacing: "2px",
+                              marginTop: "2px",
+                            }}
+                          >
+                            {office.floor}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Facilities */}
         <h3
           style={{
@@ -4252,6 +4826,7 @@ export default function App() {
             currentUser={user}
             selectedSector={selectedSector}
             onActivity={refreshActivities}
+            activeOffice={activeOffice}
           />
         )}
 
