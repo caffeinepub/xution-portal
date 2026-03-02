@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/assets/fonts/JetBrainsMono[wght].woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0rem;
+
+    /* XUTION Design Tokens */
+    --xgold: #d4af37;
+    --xgold-br: #f1d56e;
+    --xblue: #00d4ff;
+    --xred: #ef4444;
+    --xbg: #020202;
+    --xcard: #0a0a0a;
+    --xbrd: #222;
+    --xgreen: #00ff41;
+    --xdim: #666;
+
+    /* OKLCH tokens - dark military theme */
+    --background: 0.08 0 0;
+    --foreground: 0.88 0 0;
+    --card: 0.07 0 0;
+    --card-foreground: 0.88 0 0;
+    --popover: 0.1 0 0;
+    --popover-foreground: 0.88 0 0;
+    --primary: 0.72 0.12 85;
+    --primary-foreground: 0.05 0 0;
+    --secondary: 0.12 0 0;
+    --secondary-foreground: 0.88 0 0;
+    --muted: 0.15 0 0;
+    --muted-foreground: 0.45 0 0;
+    --accent: 0.72 0.12 85;
+    --accent-foreground: 0.05 0 0;
+    --destructive: 0.577 0.245 27.325;
+    --destructive-foreground: 0.985 0 0;
+    --border: 0.18 0 0;
+    --input: 0.18 0 0;
+    --ring: 0.72 0.12 85;
+    --chart-1: 0.72 0.12 85;
+    --chart-2: 0.75 0.15 200;
+    --chart-3: 0.55 0.22 27;
+    --chart-4: 0.65 0.18 160;
+    --chart-5: 0.6 0.2 300;
+    --sidebar: 0.07 0 0;
+    --sidebar-foreground: 0.88 0 0;
+    --sidebar-primary: 0.72 0.12 85;
+    --sidebar-primary-foreground: 0.05 0 0;
+    --sidebar-accent: 0.12 0 0;
+    --sidebar-accent-foreground: 0.88 0 0;
+    --sidebar-border: 0.18 0 0;
+    --sidebar-ring: 0.72 0.12 85;
+  }
+
+  * {
+    @apply border-border;
+    box-sizing: border-box;
+  }
+
+  body {
+    background: #020202;
+    color: #e0e0e0;
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-weight: 900;
+    text-transform: uppercase;
+    overflow-x: hidden;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  input, select, textarea {
+    font-family: 'JetBrains Mono', 'Courier New', monospace !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+  }
+
+  button {
+    font-family: 'JetBrains Mono', 'Courier New', monospace !important;
+    font-weight: 900 !important;
+    text-transform: uppercase !important;
+  }
+}
