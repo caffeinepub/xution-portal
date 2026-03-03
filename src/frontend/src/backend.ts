@@ -89,10 +89,137 @@ export class ExternalBlob {
         return this;
     }
 }
+export interface User {
+    uid: string;
+    question: string;
+    name: string;
+    answer: string;
+    level: bigint;
+}
 export interface backendInterface {
+    deleteUser(name: string): Promise<void>;
+    getAllUsers(): Promise<Array<[string, bigint]>>;
+    getSecurityQuestion(name: string): Promise<string>;
+    getUserCount(): Promise<bigint>;
+    loginUser(name: string, answer: string): Promise<User>;
+    registerUser(name: string, question: string, answer: string): Promise<void>;
+    updateUserLevel(name: string, newLevel: bigint): Promise<void>;
+    userExists(name: string): Promise<boolean>;
 }
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
+    async deleteUser(arg0: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.deleteUser(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.deleteUser(arg0);
+            return result;
+        }
+    }
+    async getAllUsers(): Promise<Array<[string, bigint]>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllUsers();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllUsers();
+            return result;
+        }
+    }
+    async getSecurityQuestion(arg0: string): Promise<string> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getSecurityQuestion(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getSecurityQuestion(arg0);
+            return result;
+        }
+    }
+    async getUserCount(): Promise<bigint> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getUserCount();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getUserCount();
+            return result;
+        }
+    }
+    async loginUser(arg0: string, arg1: string): Promise<User> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.loginUser(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.loginUser(arg0, arg1);
+            return result;
+        }
+    }
+    async registerUser(arg0: string, arg1: string, arg2: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.registerUser(arg0, arg1, arg2);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.registerUser(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async updateUserLevel(arg0: string, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateUserLevel(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateUserLevel(arg0, arg1);
+            return result;
+        }
+    }
+    async userExists(arg0: string): Promise<boolean> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.userExists(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.userExists(arg0);
+            return result;
+        }
+    }
 }
 export interface CreateActorOptions {
     agent?: Agent;

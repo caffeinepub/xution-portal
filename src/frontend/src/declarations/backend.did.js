@@ -8,10 +8,54 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
-export const idlService = IDL.Service({});
+export const User = IDL.Record({
+  'uid' : IDL.Text,
+  'question' : IDL.Text,
+  'name' : IDL.Text,
+  'answer' : IDL.Text,
+  'level' : IDL.Nat,
+});
+
+export const idlService = IDL.Service({
+  'deleteUser' : IDL.Func([IDL.Text], [], []),
+  'getAllUsers' : IDL.Func(
+      [],
+      [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat))],
+      ['query'],
+    ),
+  'getSecurityQuestion' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+  'getUserCount' : IDL.Func([], [IDL.Nat], ['query']),
+  'loginUser' : IDL.Func([IDL.Text, IDL.Text], [User], ['query']),
+  'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+  'updateUserLevel' : IDL.Func([IDL.Text, IDL.Nat], [], []),
+  'userExists' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
+});
 
 export const idlInitArgs = [];
 
-export const idlFactory = ({ IDL }) => { return IDL.Service({}); };
+export const idlFactory = ({ IDL }) => {
+  const User = IDL.Record({
+    'uid' : IDL.Text,
+    'question' : IDL.Text,
+    'name' : IDL.Text,
+    'answer' : IDL.Text,
+    'level' : IDL.Nat,
+  });
+  
+  return IDL.Service({
+    'deleteUser' : IDL.Func([IDL.Text], [], []),
+    'getAllUsers' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat))],
+        ['query'],
+      ),
+    'getSecurityQuestion' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'getUserCount' : IDL.Func([], [IDL.Nat], ['query']),
+    'loginUser' : IDL.Func([IDL.Text, IDL.Text], [User], ['query']),
+    'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+    'updateUserLevel' : IDL.Func([IDL.Text, IDL.Nat], [], []),
+    'userExists' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
+  });
+};
 
 export const init = ({ IDL }) => { return []; };

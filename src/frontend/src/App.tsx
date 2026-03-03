@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useActor } from "./hooks/useActor";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1120,6 +1121,10 @@ function PersonalFundManagement({
   const [funds, setFundsState] = useState<number>(() =>
     getFunds(currentUser.name),
   );
+  const [pendingPurchase, setPendingPurchase] = useState<{
+    description: string;
+    cost: number;
+  } | null>(null);
 
   const isSovereign = currentUser.lvl === 6;
 
@@ -1150,6 +1155,11 @@ function PersonalFundManagement({
       return;
     }
 
+    // Open confirmation modal
+    setPendingPurchase({ description: desc, cost });
+  };
+
+  const executePersonalPurchase = (desc: string, cost: number) => {
     const prevAmount = funds;
     const newAmount = isSovereign
       ? prevAmount
@@ -1173,180 +1183,198 @@ function PersonalFundManagement({
     setDescription("");
     setAmount("");
     setSuccess(true);
+    setPendingPurchase(null);
     onPurchase();
 
     setTimeout(() => setSuccess(false), 2000);
   };
 
   return (
-    <div style={{ marginBottom: "16px" }}>
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          width: "100%",
-          background: "transparent",
-          border: "none",
-          borderLeft: `5px solid ${S.gold}`,
-          paddingLeft: "15px",
-          paddingRight: "0",
-          marginBottom: expanded ? "12px" : "0",
-          cursor: "pointer",
-          textAlign: "left",
-        }}
-      >
-        <h3
+    <>
+      {pendingPurchase && (
+        <PurchaseConfirmModal
+          itemName={pendingPurchase.description}
+          cost={pendingPurchase.cost}
+          cardNumber={getCardNumber(currentUser.name)}
+          balance={isSovereign ? null : funds}
+          onConfirm={() =>
+            executePersonalPurchase(
+              pendingPurchase.description,
+              pendingPurchase.cost,
+            )
+          }
+          onCancel={() => setPendingPurchase(null)}
+        />
+      )}
+      <div style={{ marginBottom: "16px" }}>
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
           style={{
-            margin: 0,
-            fontSize: "0.8rem",
-            letterSpacing: "3px",
-            color: S.gold,
-            fontFamily: "'JetBrains Mono', 'Courier New', monospace",
-            fontWeight: 900,
-            textTransform: "uppercase",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            width: "100%",
+            background: "transparent",
+            border: "none",
+            borderLeft: `5px solid ${S.gold}`,
+            paddingLeft: "15px",
+            paddingRight: "0",
+            marginBottom: expanded ? "12px" : "0",
+            cursor: "pointer",
+            textAlign: "left",
           }}
         >
-          PERSONAL FUND MANAGEMENT
-        </h3>
-        <span
-          style={{
-            color: S.gold,
-            fontSize: "0.75rem",
-            fontFamily: "'JetBrains Mono', 'Courier New', monospace",
-            fontWeight: 900,
-            marginLeft: "10px",
-          }}
-        >
-          {expanded ? "▲" : "▼"}
-        </span>
-      </button>
-
-      {expanded && (
-        <div
-          style={{
-            border: `1px solid ${S.brd}`,
-            background: "#080808",
-            padding: "12px 15px",
-          }}
-        >
-          {/* Balance display */}
-          <div
+          <h3
             style={{
-              marginBottom: "14px",
-              padding: "10px 12px",
-              background: "#0a0a0a",
-              border: `1px solid ${S.gold}33`,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
+              margin: 0,
+              fontSize: "0.8rem",
+              letterSpacing: "3px",
+              color: S.gold,
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontWeight: 900,
+              textTransform: "uppercase",
             }}
           >
-            <span
+            PERSONAL FUND MANAGEMENT
+          </h3>
+          <span
+            style={{
+              color: S.gold,
+              fontSize: "0.75rem",
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontWeight: 900,
+              marginLeft: "10px",
+            }}
+          >
+            {expanded ? "▲" : "▼"}
+          </span>
+        </button>
+
+        {expanded && (
+          <div
+            style={{
+              border: `1px solid ${S.brd}`,
+              background: "#080808",
+              padding: "12px 15px",
+            }}
+          >
+            {/* Balance display */}
+            <div
               style={{
-                fontSize: "0.6rem",
+                marginBottom: "14px",
+                padding: "10px 12px",
+                background: "#0a0a0a",
+                border: `1px solid ${S.gold}33`,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.6rem",
+                  color: S.dim,
+                  letterSpacing: "2px",
+                }}
+              >
+                CURRENT BALANCE
+              </span>
+              <span
+                style={{
+                  fontSize: isSovereign ? "0.85rem" : "1rem",
+                  color: S.gold,
+                  fontWeight: 900,
+                  letterSpacing: "2px",
+                }}
+              >
+                {isSovereign ? "∞ UNLIMITED" : formatFunds(funds)}
+              </span>
+            </div>
+
+            {/* Item description input */}
+            <div
+              style={{
+                fontSize: "0.55rem",
                 color: S.dim,
                 letterSpacing: "2px",
+                marginBottom: "2px",
               }}
             >
-              CURRENT BALANCE
-            </span>
-            <span
-              style={{
-                fontSize: isSovereign ? "0.85rem" : "1rem",
-                color: S.gold,
-                fontWeight: 900,
-                letterSpacing: "2px",
-              }}
-            >
-              {isSovereign ? "∞ UNLIMITED" : formatFunds(funds)}
-            </span>
-          </div>
+              ITEM / DESCRIPTION
+            </div>
+            <input
+              type="text"
+              placeholder="ENTER ITEM NAME..."
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handlePurchase()}
+              style={{ ...inputStyle, marginBottom: "0" }}
+            />
 
-          {/* Item description input */}
-          <div
-            style={{
-              fontSize: "0.55rem",
-              color: S.dim,
-              letterSpacing: "2px",
-              marginBottom: "2px",
-            }}
-          >
-            ITEM / DESCRIPTION
-          </div>
-          <input
-            type="text"
-            placeholder="ENTER ITEM NAME..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handlePurchase()}
-            style={{ ...inputStyle, marginBottom: "0" }}
-          />
-
-          {/* Amount input */}
-          <div
-            style={{
-              fontSize: "0.55rem",
-              color: S.dim,
-              letterSpacing: "2px",
-              marginTop: "10px",
-              marginBottom: "2px",
-            }}
-          >
-            AMOUNT
-          </div>
-          <input
-            type="number"
-            placeholder="0.00"
-            min={0}
-            step={0.01}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handlePurchase()}
-            style={{ ...inputStyle, marginBottom: "0" }}
-          />
-
-          {/* Error / success messages */}
-          {error && (
+            {/* Amount input */}
             <div
               style={{
-                marginTop: "8px",
-                fontSize: "0.65rem",
-                color: S.red,
+                fontSize: "0.55rem",
+                color: S.dim,
                 letterSpacing: "2px",
-                fontWeight: 900,
+                marginTop: "10px",
+                marginBottom: "2px",
               }}
             >
-              ⚠ {error}
+              AMOUNT
             </div>
-          )}
-          {success && (
-            <div
-              style={{
-                marginTop: "8px",
-                fontSize: "0.65rem",
-                color: S.green,
-                letterSpacing: "2px",
-                fontWeight: 900,
-              }}
-            >
-              ✓ PURCHASE APPROVED
-            </div>
-          )}
+            <input
+              type="number"
+              placeholder="0.00"
+              min={0}
+              step={0.01}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handlePurchase()}
+              style={{ ...inputStyle, marginBottom: "0" }}
+            />
 
-          {/* Purchase button */}
-          <button
-            type="button"
-            style={{ ...btnPrimary, marginTop: "12px" }}
-            onClick={handlePurchase}
-          >
-            PURCHASE
-          </button>
-        </div>
-      )}
-    </div>
+            {/* Error / success messages */}
+            {error && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  fontSize: "0.65rem",
+                  color: S.red,
+                  letterSpacing: "2px",
+                  fontWeight: 900,
+                }}
+              >
+                ⚠ {error}
+              </div>
+            )}
+            {success && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  fontSize: "0.65rem",
+                  color: S.green,
+                  letterSpacing: "2px",
+                  fontWeight: 900,
+                }}
+              >
+                ✓ PURCHASE APPROVED
+              </div>
+            )}
+
+            {/* Purchase button */}
+            <button
+              type="button"
+              style={{ ...btnPrimary, marginTop: "12px" }}
+              onClick={handlePurchase}
+            >
+              PURCHASE
+            </button>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -1567,36 +1595,78 @@ function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
   const [loginA, setLoginA] = useState("");
   const [qDisp, setQDisp] = useState("");
   const [err, setErr] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [offlineMode, setOfflineMode] = useState(false);
+
+  // Actor for backend calls (anonymous actor — no II required for auth)
+  const { actor, isFetching: actorFetching } = useActor();
+
+  // Debounce ref for security question lookup
+  const qLookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleNameChange = useCallback(
     (val: string) => {
       setName(val);
       if (mode === "in") {
-        const db = getDB();
         const upper = val.trim().toUpperCase();
-        if (db[upper]) {
-          setQDisp(`CHALLENGE: ${db[upper].q}`);
-        } else {
-          setQDisp("NOT FOUND");
+
+        // Clear previous timer
+        if (qLookupTimer.current) clearTimeout(qLookupTimer.current);
+
+        if (!upper) {
+          setQDisp("");
+          return;
         }
+
+        // Try backend first, debounced 500ms, fall back to localStorage
+        qLookupTimer.current = setTimeout(async () => {
+          try {
+            if (actor) {
+              const question = await actor.getSecurityQuestion(upper);
+              if (question) {
+                setQDisp(`CHALLENGE: ${question}`);
+                return;
+              }
+            }
+            // Fallback to localStorage
+            const db = getDB();
+            if (db[upper]) {
+              setQDisp(`CHALLENGE: ${db[upper].q}`);
+            } else {
+              setQDisp("NOT FOUND");
+            }
+          } catch {
+            // Network offline — use localStorage
+            const db = getDB();
+            if (db[upper]) {
+              setQDisp(`CHALLENGE: ${db[upper].q}`);
+            } else {
+              setQDisp("NOT FOUND");
+            }
+          }
+        }, 500);
       }
     },
-    [mode],
+    [mode, actor],
   );
 
   const switchMode = (m: "up" | "in") => {
     setMode(m);
     setErr("");
     setQDisp("");
+    setOfflineMode(false);
+    if (qLookupTimer.current) clearTimeout(qLookupTimer.current);
   };
 
-  const runAuth = () => {
+  const runAuth = async () => {
     const n = name.trim().toUpperCase();
     const db = getDB();
     setErr("");
+    setOfflineMode(false);
     if (!n) return;
 
     if (mode === "up") {
+      // Pre-validate locally first
       if (db[n]) {
         setErr("NAME CLAIMED");
         return;
@@ -1605,25 +1675,113 @@ function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
         setErr("DATA MISSING");
         return;
       }
-      const uid = generateUID();
-      const record: UserRecord = { lvl, q, a: a.trim().toLowerCase(), uid };
-      db[n] = record;
-      setDB(db);
-      addActivity(`NEW ID REGISTERED: ${n}`);
-      onLogin({ name: n, ...record });
+
+      setLoading(true);
+      try {
+        if (!actor) throw new Error("no actor");
+
+        // Try backend registration
+        await actor.registerUser(n, q, a.trim().toLowerCase());
+
+        // Backend registers at level 1 by default; update if higher level selected
+        if (lvl > 1) {
+          await actor.updateUserLevel(n, BigInt(lvl));
+        }
+
+        // Fetch back the user to get the canonical UID
+        try {
+          const loggedUser = await actor.loginUser(n, a.trim().toLowerCase());
+          const uid = loggedUser.uid;
+          // Cache to localStorage with backend-provided uid
+          const updatedDb = getDB();
+          updatedDb[n] = {
+            lvl: Number(loggedUser.level),
+            q: loggedUser.question,
+            a: loggedUser.answer,
+            uid,
+          };
+          setDB(updatedDb);
+          addActivity(`NEW ID REGISTERED: ${n}`);
+          setLoading(false);
+          onLogin({
+            name: n,
+            lvl: Number(loggedUser.level),
+            q: loggedUser.question,
+            a: loggedUser.answer,
+            uid,
+          });
+        } catch {
+          // loginUser failed after registration; generate local uid and cache
+          const uid = generateUID();
+          const updatedDb = getDB();
+          updatedDb[n] = { lvl, q, a: a.trim().toLowerCase(), uid };
+          setDB(updatedDb);
+          addActivity(`NEW ID REGISTERED: ${n}`);
+          setLoading(false);
+          onLogin({ name: n, lvl, q, a: a.trim().toLowerCase(), uid });
+        }
+      } catch {
+        // Backend offline or error — register locally only
+        setOfflineMode(true);
+        const uid = generateUID();
+        const record: UserRecord = { lvl, q, a: a.trim().toLowerCase(), uid };
+        db[n] = record;
+        setDB(db);
+        addActivity(`NEW ID REGISTERED: ${n} (OFFLINE)`);
+        setLoading(false);
+        onLogin({ name: n, ...record });
+      }
     } else {
-      if (!db[n]) {
-        setErr("NOT FOUND");
-        return;
+      // LOGIN mode
+      setLoading(true);
+      try {
+        if (!actor) throw new Error("no actor");
+
+        // Try backend login
+        const loggedUser = await actor.loginUser(
+          n,
+          loginA.trim().toLowerCase(),
+        );
+
+        // Update localStorage cache with backend data
+        const updatedDb = getDB();
+        updatedDb[n] = {
+          lvl: Number(loggedUser.level),
+          q: loggedUser.question,
+          a: loggedUser.answer,
+          uid: loggedUser.uid,
+        };
+        setDB(updatedDb);
+        addActivity(`ID LOGGED IN: ${n}`);
+        setLoading(false);
+        onLogin({
+          name: n,
+          lvl: Number(loggedUser.level),
+          q: loggedUser.question,
+          a: loggedUser.answer,
+          uid: loggedUser.uid,
+        });
+      } catch {
+        // Backend offline or invalid credentials — try localStorage fallback
+        if (!db[n]) {
+          setErr("NOT FOUND");
+          setLoading(false);
+          return;
+        }
+        if (db[n].a !== loginA.trim().toLowerCase()) {
+          setErr("DENIED");
+          setLoading(false);
+          return;
+        }
+        setOfflineMode(true);
+        addActivity(`ID LOGGED IN: ${n} (OFFLINE)`);
+        setLoading(false);
+        onLogin({ name: n, ...db[n] });
       }
-      if (db[n].a !== loginA.trim().toLowerCase()) {
-        setErr("DENIED");
-        return;
-      }
-      addActivity(`ID LOGGED IN: ${n}`);
-      onLogin({ name: n, ...db[n] });
     }
   };
+
+  const isButtonDisabled = loading || actorFetching;
 
   return (
     <div
@@ -1763,12 +1921,51 @@ function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
 
         <button
           type="button"
-          style={{ ...btnPrimary, marginTop: "15px" }}
+          disabled={isButtonDisabled}
+          style={{
+            ...btnPrimary,
+            marginTop: "15px",
+            opacity: isButtonDisabled ? 0.6 : 1,
+            cursor: isButtonDisabled ? "not-allowed" : "pointer",
+          }}
           onClick={runAuth}
         >
-          INITIALIZE
+          {actorFetching
+            ? "INITIALIZING..."
+            : loading
+              ? "CONNECTING..."
+              : "INITIALIZE"}
         </button>
-        {err && (
+        {(loading || actorFetching) && (
+          <p
+            style={{
+              color: S.gold,
+              fontSize: "0.7rem",
+              marginTop: "12px",
+              minHeight: "1.2em",
+              letterSpacing: "2px",
+            }}
+          >
+            {actorFetching
+              ? "ESTABLISHING LINK..."
+              : "CONNECTING TO NETWORK..."}
+          </p>
+        )}
+        {!loading && offlineMode && (
+          <p
+            style={{
+              color: S.blue,
+              fontSize: "0.65rem",
+              marginTop: "12px",
+              minHeight: "1.2em",
+              letterSpacing: "1px",
+              opacity: 0.8,
+            }}
+          >
+            ⚡ OFFLINE MODE — SAVED LOCALLY
+          </p>
+        )}
+        {!loading && err && (
           <p
             style={{
               color: S.red,
@@ -2928,6 +3125,299 @@ function MemberList({
   );
 }
 
+// ─── PurchaseConfirmModal ──────────────────────────────────────────────────────
+
+interface PurchaseConfirmProps {
+  itemName: string;
+  cost: number;
+  cardNumber: string;
+  balance: number | null; // null = unlimited (L6)
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function PurchaseConfirmModal({
+  itemName,
+  cost,
+  cardNumber,
+  balance,
+  onConfirm,
+  onCancel,
+}: PurchaseConfirmProps) {
+  const last4 = cardNumber.replace(/\s/g, "").slice(-4);
+  const isUnlimited = balance === null;
+  const remaining = isUnlimited
+    ? null
+    : Number.parseFloat(((balance ?? 0) - cost).toFixed(2));
+
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
+  return (
+    <div
+      data-ocid="purchase.modal"
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,0.85)",
+        zIndex: 99999,
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        padding: "20px",
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+      onKeyDown={(e) => {
+        if (e.target === e.currentTarget && e.key === "Enter") onCancel();
+      }}
+    >
+      <div
+        style={{
+          background: "#0a0a0a",
+          border: `2px solid ${S.gold}`,
+          padding: "28px 24px",
+          width: "100%",
+          maxWidth: "380px",
+          fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+          fontWeight: 900,
+          textTransform: "uppercase",
+          boxShadow: `0 0 40px ${S.gold}22, 0 8px 40px rgba(0,0,0,0.9)`,
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            fontSize: "0.6rem",
+            letterSpacing: "4px",
+            color: S.gold,
+            borderBottom: `1px solid ${S.brd}`,
+            paddingBottom: "12px",
+            marginBottom: "20px",
+          }}
+        >
+          ⚡ CONFIRM PURCHASE
+        </div>
+
+        {/* Item details */}
+        <div style={{ marginBottom: "20px" }}>
+          <div
+            style={{
+              padding: "14px",
+              background: "#050505",
+              border: `1px solid ${S.brd}`,
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+            }}
+          >
+            {/* Item name */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.55rem",
+                  color: S.dim,
+                  letterSpacing: "2px",
+                }}
+              >
+                ITEM
+              </span>
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  color: S.white,
+                  letterSpacing: "1px",
+                  textAlign: "right",
+                  flex: 1,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {itemName}
+              </span>
+            </div>
+
+            {/* Cost */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.55rem",
+                  color: S.dim,
+                  letterSpacing: "2px",
+                }}
+              >
+                COST
+              </span>
+              <span
+                style={{
+                  fontSize: "0.9rem",
+                  color: S.gold,
+                  letterSpacing: "2px",
+                  fontWeight: 900,
+                }}
+              >
+                {formatFunds(cost)}
+              </span>
+            </div>
+
+            {/* Current balance */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "0.55rem",
+                  color: S.dim,
+                  letterSpacing: "2px",
+                }}
+              >
+                BALANCE
+              </span>
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  color: S.goldBr,
+                  letterSpacing: "1px",
+                }}
+              >
+                {isUnlimited ? "∞ UNLIMITED" : formatFunds(balance ?? 0)}
+              </span>
+            </div>
+
+            {/* Remaining after */}
+            {!isUnlimited && remaining !== null && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  borderTop: `1px solid ${S.brd}`,
+                  paddingTop: "8px",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "0.55rem",
+                    color: S.dim,
+                    letterSpacing: "2px",
+                  }}
+                >
+                  AFTER
+                </span>
+                <span
+                  style={{
+                    fontSize: "0.75rem",
+                    color: remaining < 0 ? S.red : S.green,
+                    letterSpacing: "1px",
+                  }}
+                >
+                  {formatFunds(remaining)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Card info */}
+          <div
+            style={{
+              marginTop: "10px",
+              padding: "10px 14px",
+              background: "#080808",
+              border: `1px solid ${S.gold}33`,
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "0.55rem",
+                color: S.dim,
+                letterSpacing: "2px",
+              }}
+            >
+              CHARGED TO
+            </span>
+            <span
+              style={{
+                fontSize: "0.7rem",
+                color: S.gold,
+                letterSpacing: "2px",
+                fontWeight: 900,
+              }}
+            >
+              XUTION CARD ****{last4}
+            </span>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            type="button"
+            data-ocid="purchase.confirm_button"
+            onClick={onConfirm}
+            style={{
+              ...btnPrimary,
+              flex: 1,
+              padding: "14px",
+              fontSize: "0.75rem",
+              letterSpacing: "2px",
+            }}
+          >
+            ✓ CONFIRM
+          </button>
+          <button
+            type="button"
+            data-ocid="purchase.cancel_button"
+            onClick={onCancel}
+            style={{
+              flex: 1,
+              padding: "14px",
+              background: "#222",
+              color: S.dim,
+              border: "none",
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontWeight: 900,
+              fontSize: "0.75rem",
+              textTransform: "uppercase",
+              letterSpacing: "2px",
+              cursor: "pointer",
+            }}
+          >
+            ✕ CANCEL
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── FacilityMenu ─────────────────────────────────────────────────────────────
 
 function FacilityMenu({
@@ -2952,6 +3442,7 @@ function FacilityMenu({
   const [funds, setFundsState] = useState<number>(() =>
     getFunds(currentUser.name),
   );
+  const [pendingItem, setPendingItem] = useState<MenuItem | null>(null);
 
   useEffect(() => {
     setItemsState(getFacilityMenu(facility));
@@ -2974,6 +3465,11 @@ function FacilityMenu({
       setTimeout(() => setErrors((prev) => ({ ...prev, [item.id]: "" })), 2000);
       return;
     }
+    // Open confirmation modal
+    setPendingItem(item);
+  };
+
+  const executePurchase = (item: MenuItem) => {
     const prevAmount = funds;
     const newAmount = isSovereign
       ? prevAmount
@@ -2999,6 +3495,7 @@ function FacilityMenu({
       () => setSuccessIds((prev) => ({ ...prev, [item.id]: false })),
       2000,
     );
+    setPendingItem(null);
   };
 
   const handleAddItem = () => {
@@ -3034,219 +3531,231 @@ function FacilityMenu({
   };
 
   return (
-    <div
-      style={{
-        borderTop: `1px solid ${S.brd}`,
-        paddingTop: "15px",
-        marginBottom: "20px",
-      }}
-    >
-      <p
+    <>
+      {pendingItem && (
+        <PurchaseConfirmModal
+          itemName={pendingItem.name}
+          cost={pendingItem.price}
+          cardNumber={getCardNumber(currentUser.name)}
+          balance={isSovereign ? null : funds}
+          onConfirm={() => executePurchase(pendingItem)}
+          onCancel={() => setPendingItem(null)}
+        />
+      )}
+      <div
         style={{
-          color: S.gold,
-          fontSize: "0.7rem",
-          marginBottom: "12px",
-          letterSpacing: "3px",
-          fontWeight: 900,
+          borderTop: `1px solid ${S.brd}`,
+          paddingTop: "15px",
+          marginBottom: "20px",
         }}
       >
-        FACILITY MENU
-      </p>
-      {items.length === 0 ? (
         <p
           style={{
-            color: S.dim,
-            fontSize: "0.65rem",
-            letterSpacing: "2px",
+            color: S.gold,
+            fontSize: "0.7rem",
             marginBottom: "12px",
+            letterSpacing: "3px",
+            fontWeight: 900,
           }}
         >
-          NO ITEMS AVAILABLE
+          FACILITY MENU
         </p>
-      ) : (
-        <div style={{ marginBottom: "12px" }}>
-          {items.map((item) => (
-            <div
-              key={item.id}
-              style={{
-                padding: "10px 12px",
-                marginBottom: "8px",
-                background: "#050505",
-                border: `1px solid ${S.brd}`,
-                display: "flex",
-                flexDirection: "column",
-                gap: "6px",
-              }}
-            >
+        {items.length === 0 ? (
+          <p
+            style={{
+              color: S.dim,
+              fontSize: "0.65rem",
+              letterSpacing: "2px",
+              marginBottom: "12px",
+            }}
+          >
+            NO ITEMS AVAILABLE
+          </p>
+        ) : (
+          <div style={{ marginBottom: "12px" }}>
+            {items.map((item) => (
               <div
+                key={item.id}
                 style={{
+                  padding: "10px 12px",
+                  marginBottom: "8px",
+                  background: "#050505",
+                  border: `1px solid ${S.brd}`,
                   display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "10px",
+                  flexDirection: "column",
+                  gap: "6px",
                 }}
               >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: "0.75rem",
-                      color: S.white,
-                      fontWeight: 900,
-                      letterSpacing: "1px",
-                    }}
-                  >
-                    {item.name}
-                  </div>
-                  {item.description && (
-                    <div
-                      style={{
-                        fontSize: "0.6rem",
-                        color: S.dim,
-                        letterSpacing: "1px",
-                        marginTop: "2px",
-                      }}
-                    >
-                      {item.description}
-                    </div>
-                  )}
-                </div>
                 <div
                   style={{
-                    fontSize: "0.8rem",
-                    color: S.gold,
-                    fontWeight: 900,
-                    letterSpacing: "1px",
-                    flexShrink: 0,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: "10px",
                   }}
                 >
-                  {formatFunds(item.price)}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: "0.75rem",
+                        color: S.white,
+                        fontWeight: 900,
+                        letterSpacing: "1px",
+                      }}
+                    >
+                      {item.name}
+                    </div>
+                    {item.description && (
+                      <div
+                        style={{
+                          fontSize: "0.6rem",
+                          color: S.dim,
+                          letterSpacing: "1px",
+                          marginTop: "2px",
+                        }}
+                      >
+                        {item.description}
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: "0.8rem",
+                      color: S.gold,
+                      fontWeight: 900,
+                      letterSpacing: "1px",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {formatFunds(item.price)}
+                  </div>
                 </div>
-              </div>
-              <div style={{ display: "flex", gap: "6px" }}>
-                <button
-                  type="button"
-                  style={{
-                    ...btnSmall,
-                    background: S.gold,
-                    color: "#000",
-                    flex: "none",
-                    padding: "7px 14px",
-                  }}
-                  onClick={() => handlePurchase(item)}
-                >
-                  PURCHASE
-                </button>
-                {isSovereign && (
+                <div style={{ display: "flex", gap: "6px" }}>
                   <button
                     type="button"
                     style={{
                       ...btnSmall,
-                      background: S.red,
-                      color: "#fff",
+                      background: S.gold,
+                      color: "#000",
                       flex: "none",
-                      padding: "7px 10px",
+                      padding: "7px 14px",
                     }}
-                    onClick={() => handleDeleteItem(item.id)}
+                    onClick={() => handlePurchase(item)}
                   >
-                    DELETE
+                    PURCHASE
                   </button>
-                )}
-                {errors[item.id] && (
-                  <span
-                    style={{
-                      fontSize: "0.6rem",
-                      color: S.red,
-                      fontWeight: 900,
-                      letterSpacing: "1px",
-                      alignSelf: "center",
-                    }}
-                  >
-                    ⚠ {errors[item.id]}
-                  </span>
-                )}
-                {successIds[item.id] && (
-                  <span
-                    style={{
-                      fontSize: "0.6rem",
-                      color: S.green,
-                      fontWeight: 900,
-                      letterSpacing: "1px",
-                      alignSelf: "center",
-                    }}
-                  >
-                    ✓ APPROVED
-                  </span>
-                )}
+                  {isSovereign && (
+                    <button
+                      type="button"
+                      style={{
+                        ...btnSmall,
+                        background: S.red,
+                        color: "#fff",
+                        flex: "none",
+                        padding: "7px 10px",
+                      }}
+                      onClick={() => handleDeleteItem(item.id)}
+                    >
+                      DELETE
+                    </button>
+                  )}
+                  {errors[item.id] && (
+                    <span
+                      style={{
+                        fontSize: "0.6rem",
+                        color: S.red,
+                        fontWeight: 900,
+                        letterSpacing: "1px",
+                        alignSelf: "center",
+                      }}
+                    >
+                      ⚠ {errors[item.id]}
+                    </span>
+                  )}
+                  {successIds[item.id] && (
+                    <span
+                      style={{
+                        fontSize: "0.6rem",
+                        color: S.green,
+                        fontWeight: 900,
+                        letterSpacing: "1px",
+                        alignSelf: "center",
+                      }}
+                    >
+                      ✓ APPROVED
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {isSovereign && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setAddOpen((v) => !v)}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: S.gold,
-              fontSize: "0.65rem",
-              fontWeight: 900,
-              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
-              textTransform: "uppercase",
-              letterSpacing: "2px",
-              cursor: "pointer",
-              padding: "6px 0",
-              marginBottom: addOpen ? "10px" : "0",
-            }}
-          >
-            ADD MENU ITEM {addOpen ? "▲" : "▼"}
-          </button>
-          {addOpen && (
-            <div
+            ))}
+          </div>
+        )}
+        {isSovereign && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setAddOpen((v) => !v)}
               style={{
-                border: `1px solid ${S.gold}44`,
-                background: "#0a0800",
-                padding: "12px",
+                background: "transparent",
+                border: "none",
+                color: S.gold,
+                fontSize: "0.65rem",
+                fontWeight: 900,
+                fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                textTransform: "uppercase",
+                letterSpacing: "2px",
+                cursor: "pointer",
+                padding: "6px 0",
+                marginBottom: addOpen ? "10px" : "0",
               }}
             >
-              <input
-                type="text"
-                placeholder="ITEM NAME"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                style={{ ...inputStyle, marginBottom: "0" }}
-              />
-              <input
-                type="text"
-                placeholder="DESCRIPTION (OPTIONAL)"
-                value={newDesc}
-                onChange={(e) => setNewDesc(e.target.value)}
-                style={{ ...inputStyle, marginBottom: "0" }}
-              />
-              <input
-                type="number"
-                placeholder="PRICE (0.00)"
-                min={0}
-                step={0.01}
-                value={newPrice}
-                onChange={(e) => setNewPrice(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAddItem()}
-                style={{ ...inputStyle, marginBottom: "0" }}
-              />
-              <button
-                type="button"
-                style={{ ...btnPrimary, marginTop: "10px" }}
-                onClick={handleAddItem}
+              ADD MENU ITEM {addOpen ? "▲" : "▼"}
+            </button>
+            {addOpen && (
+              <div
+                style={{
+                  border: `1px solid ${S.gold}44`,
+                  background: "#0a0800",
+                  padding: "12px",
+                }}
               >
-                ADD ITEM
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+                <input
+                  type="text"
+                  placeholder="ITEM NAME"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  style={{ ...inputStyle, marginBottom: "0" }}
+                />
+                <input
+                  type="text"
+                  placeholder="DESCRIPTION (OPTIONAL)"
+                  value={newDesc}
+                  onChange={(e) => setNewDesc(e.target.value)}
+                  style={{ ...inputStyle, marginBottom: "0" }}
+                />
+                <input
+                  type="number"
+                  placeholder="PRICE (0.00)"
+                  min={0}
+                  step={0.01}
+                  value={newPrice}
+                  onChange={(e) => setNewPrice(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddItem()}
+                  style={{ ...inputStyle, marginBottom: "0" }}
+                />
+                <button
+                  type="button"
+                  style={{ ...btnPrimary, marginTop: "10px" }}
+                  onClick={handleAddItem}
+                >
+                  ADD ITEM
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
