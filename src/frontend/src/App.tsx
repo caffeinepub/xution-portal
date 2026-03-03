@@ -68,6 +68,7 @@ interface MenuItem {
   price: number;
   description: string;
   createdBy: string;
+  stock?: number; // undefined = unlimited
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -240,6 +241,21 @@ function setMenuItems(items: MenuItem[]): void {
 
 function getFacilityMenu(facility: string): MenuItem[] {
   return getMenuItems().filter((item) => item.facility === facility);
+}
+
+function updateMenuItemStock(itemId: string, newStock: number): void {
+  const items = getMenuItems().map((item) =>
+    item.id === itemId ? { ...item, stock: Math.max(0, newStock) } : item,
+  );
+  setMenuItems(items);
+}
+
+function decrementMenuItemStock(itemId: string): void {
+  const items = getMenuItems();
+  const item = items.find((i) => i.id === itemId);
+  if (!item || item.stock === undefined) return; // unlimited
+  if (item.stock <= 0) return;
+  updateMenuItemStock(itemId, item.stock - 1);
 }
 
 function getCardExpiry(uid: string | undefined): string {
@@ -3437,6 +3453,8 @@ function FacilityMenu({
   const [newName, setNewName] = useState("");
   const [newDesc, setNewDesc] = useState("");
   const [newPrice, setNewPrice] = useState("");
+  const [newStock, setNewStock] = useState(""); // empty = unlimited
+  const [stockInputs, setStockInputs] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successIds, setSuccessIds] = useState<Record<string, boolean>>({});
   const [funds, setFundsState] = useState<number>(() =>
@@ -3478,6 +3496,10 @@ function FacilityMenu({
       setFunds(currentUser.name, newAmount);
       setFundsState(newAmount);
     }
+    // Decrement stock if tracked
+    if (item.stock !== undefined) {
+      decrementMenuItemStock(item.id);
+    }
     addTransaction({
       member: currentUser.name,
       prevAmount,
@@ -3490,6 +3512,7 @@ function FacilityMenu({
       `PURCHASE: ${item.name} FROM ${facility} BY ${currentUser.name}`,
     );
     onActivity();
+    refreshItems();
     setSuccessIds((prev) => ({ ...prev, [item.id]: true }));
     setTimeout(
       () => setSuccessIds((prev) => ({ ...prev, [item.id]: false })),
@@ -3503,6 +3526,14 @@ function FacilityMenu({
     const price = Number.parseFloat(newPrice);
     if (!name) return;
     if (Number.isNaN(price) || price < 0) return;
+    const stockVal = newStock.trim();
+    const parsedStock =
+      stockVal === "" ? undefined : Number.parseInt(stockVal, 10);
+    if (
+      parsedStock !== undefined &&
+      (Number.isNaN(parsedStock) || parsedStock < 0)
+    )
+      return;
     const allItems = getMenuItems();
     const newItem: MenuItem = {
       id: Date.now().toString(),
@@ -3511,14 +3542,26 @@ function FacilityMenu({
       price: Number.parseFloat(price.toFixed(2)),
       description: newDesc.trim(),
       createdBy: currentUser.name,
+      stock: parsedStock,
     };
     allItems.push(newItem);
     setMenuItems(allItems);
     setNewName("");
     setNewDesc("");
     setNewPrice("");
+    setNewStock("");
     addActivity(`MENU ITEM ADDED: ${name} TO ${facility}`);
     onActivity();
+    refreshItems();
+  };
+
+  const handleSetStock = (item: MenuItem) => {
+    const raw = stockInputs[item.id]?.trim() ?? "";
+    if (raw === "") return;
+    const val = Number.parseInt(raw, 10);
+    if (Number.isNaN(val) || val < 0) return;
+    updateMenuItemStock(item.id, val);
+    setStockInputs((prev) => ({ ...prev, [item.id]: "" }));
     refreshItems();
   };
 
@@ -3573,123 +3616,358 @@ function FacilityMenu({
           </p>
         ) : (
           <div style={{ marginBottom: "12px" }}>
-            {items.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  padding: "10px 12px",
-                  marginBottom: "8px",
-                  background: "#050505",
-                  border: `1px solid ${S.brd}`,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "6px",
-                }}
-              >
+            {items.map((item) => {
+              const isSoldOut = item.stock !== undefined && item.stock <= 0;
+              return (
                 <div
+                  key={item.id}
                   style={{
+                    padding: "10px 12px",
+                    marginBottom: "8px",
+                    background: isSoldOut ? "#0a0505" : "#050505",
+                    border: `1px solid ${isSoldOut ? `${S.red}55` : S.brd}`,
                     display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: "10px",
+                    flexDirection: "column",
+                    gap: "6px",
+                    opacity: isSoldOut ? 0.75 : 1,
                   }}
                 >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontSize: "0.75rem",
-                        color: S.white,
-                        fontWeight: 900,
-                        letterSpacing: "1px",
-                      }}
-                    >
-                      {item.name}
-                    </div>
-                    {item.description && (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
-                          fontSize: "0.6rem",
-                          color: S.dim,
+                          fontSize: "0.75rem",
+                          color: isSoldOut ? S.dim : S.white,
+                          fontWeight: 900,
                           letterSpacing: "1px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        {item.name}
+                        {isSoldOut && (
+                          <span
+                            style={{
+                              fontSize: "0.55rem",
+                              color: S.red,
+                              border: `1px solid ${S.red}`,
+                              padding: "1px 5px",
+                              letterSpacing: "2px",
+                              fontWeight: 900,
+                            }}
+                          >
+                            SOLD OUT
+                          </span>
+                        )}
+                      </div>
+                      {item.description && (
+                        <div
+                          style={{
+                            fontSize: "0.6rem",
+                            color: S.dim,
+                            letterSpacing: "1px",
+                            marginTop: "2px",
+                          }}
+                        >
+                          {item.description}
+                        </div>
+                      )}
+                      {/* Stock indicator */}
+                      {item.stock !== undefined && (
+                        <div
+                          style={{
+                            fontSize: "0.55rem",
+                            color: isSoldOut
+                              ? S.red
+                              : item.stock <= 5
+                                ? "#ffaa00"
+                                : S.green,
+                            letterSpacing: "1px",
+                            marginTop: "3px",
+                            fontWeight: 900,
+                          }}
+                        >
+                          STOCK: {item.stock}
+                        </div>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.8rem",
+                        color: S.gold,
+                        fontWeight: 900,
+                        letterSpacing: "1px",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {formatFunds(item.price)}
+                    </div>
+                  </div>
+                  <div
+                    style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
+                  >
+                    <button
+                      type="button"
+                      disabled={isSoldOut}
+                      style={{
+                        ...btnSmall,
+                        background: isSoldOut ? S.dim : S.gold,
+                        color: isSoldOut ? "#888" : "#000",
+                        flex: "none",
+                        padding: "7px 14px",
+                        cursor: isSoldOut ? "not-allowed" : "pointer",
+                      }}
+                      onClick={() => !isSoldOut && handlePurchase(item)}
+                    >
+                      {isSoldOut ? "SOLD OUT" : "PURCHASE"}
+                    </button>
+                    {isSovereign && (
+                      <>
+                        {/* Stock adjustment controls */}
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                          }}
+                        >
+                          <button
+                            type="button"
+                            title="Decrease stock by 1"
+                            style={{
+                              ...btnSmall,
+                              background: "#222",
+                              color: S.white,
+                              flex: "none",
+                              padding: "7px 8px",
+                              fontSize: "0.8rem",
+                            }}
+                            onClick={() => {
+                              if (item.stock !== undefined) {
+                                updateMenuItemStock(item.id, item.stock - 1);
+                                refreshItems();
+                              }
+                            }}
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            min={0}
+                            placeholder="QTY"
+                            value={stockInputs[item.id] ?? ""}
+                            onChange={(e) =>
+                              setStockInputs((prev) => ({
+                                ...prev,
+                                [item.id]: e.target.value,
+                              }))
+                            }
+                            onKeyDown={(e) =>
+                              e.key === "Enter" && handleSetStock(item)
+                            }
+                            style={{
+                              ...inputStyle,
+                              margin: 0,
+                              width: "60px",
+                              padding: "6px 6px",
+                              fontSize: "0.65rem",
+                              height: "32px",
+                              textAlign: "center",
+                            }}
+                          />
+                          <button
+                            type="button"
+                            title="Increase stock by 1"
+                            style={{
+                              ...btnSmall,
+                              background: "#222",
+                              color: S.white,
+                              flex: "none",
+                              padding: "7px 8px",
+                              fontSize: "0.8rem",
+                            }}
+                            onClick={() => {
+                              const cur = item.stock ?? 0;
+                              updateMenuItemStock(item.id, cur + 1);
+                              refreshItems();
+                            }}
+                          >
+                            +
+                          </button>
+                          <button
+                            type="button"
+                            title="Set stock to entered value"
+                            style={{
+                              ...btnSmall,
+                              background: S.blue,
+                              color: "#000",
+                              flex: "none",
+                              padding: "7px 8px",
+                              fontSize: "0.6rem",
+                            }}
+                            onClick={() => handleSetStock(item)}
+                          >
+                            SET
+                          </button>
+                        </div>
+                        <button
+                          type="button"
+                          style={{
+                            ...btnSmall,
+                            background: S.red,
+                            color: "#fff",
+                            flex: "none",
+                            padding: "7px 10px",
+                          }}
+                          onClick={() => handleDeleteItem(item.id)}
+                        >
+                          DELETE
+                        </button>
+                      </>
+                    )}
+                    {errors[item.id] && (
+                      <span
+                        style={{
+                          fontSize: "0.6rem",
+                          color: S.red,
+                          fontWeight: 900,
+                          letterSpacing: "1px",
+                          alignSelf: "center",
+                        }}
+                      >
+                        ⚠ {errors[item.id]}
+                      </span>
+                    )}
+                    {successIds[item.id] && (
+                      <span
+                        style={{
+                          fontSize: "0.6rem",
+                          color: S.green,
+                          fontWeight: 900,
+                          letterSpacing: "1px",
+                          alignSelf: "center",
+                        }}
+                      >
+                        ✓ APPROVED
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {/* Sold Out Log */}
+        {(() => {
+          const soldOutItems = items.filter(
+            (item) => item.stock !== undefined && item.stock <= 0,
+          );
+          return (
+            <div style={{ marginBottom: "16px" }}>
+              <p
+                style={{
+                  color: S.red,
+                  fontSize: "0.7rem",
+                  marginBottom: "8px",
+                  letterSpacing: "3px",
+                  fontWeight: 900,
+                }}
+              >
+                SOLD OUT ({soldOutItems.length})
+              </p>
+              <div
+                className="xution-scroll"
+                style={{
+                  height: "150px",
+                  overflowY: "scroll",
+                  border: `1px solid ${S.brd}`,
+                  padding: "10px",
+                  background: "#050505",
+                }}
+              >
+                {soldOutItems.length === 0 ? (
+                  <p
+                    style={{
+                      opacity: 0.4,
+                      fontSize: "0.7rem",
+                      letterSpacing: "1px",
+                    }}
+                  >
+                    NO ITEMS SOLD OUT
+                  </p>
+                ) : (
+                  soldOutItems.map((item) => (
+                    <div
+                      key={`so-${item.id}`}
+                      style={{
+                        marginBottom: "8px",
+                        borderBottom: "1px solid #300",
+                        paddingBottom: "6px",
+                        fontSize: "0.7rem",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <strong
+                          style={{ color: S.white, letterSpacing: "1px" }}
+                        >
+                          {item.name}
+                        </strong>
+                        <span
+                          style={{
+                            color: S.red,
+                            fontSize: "0.6rem",
+                            fontWeight: 900,
+                            letterSpacing: "2px",
+                            border: `1px solid ${S.red}`,
+                            padding: "1px 5px",
+                          }}
+                        >
+                          SOLD OUT
+                        </span>
+                      </div>
+                      {item.description && (
+                        <div
+                          style={{
+                            color: S.dim,
+                            fontSize: "0.6rem",
+                            marginTop: "2px",
+                          }}
+                        >
+                          {item.description}
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          color: S.gold,
+                          fontSize: "0.6rem",
                           marginTop: "2px",
                         }}
                       >
-                        {item.description}
+                        {formatFunds(item.price)}
                       </div>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      fontSize: "0.8rem",
-                      color: S.gold,
-                      fontWeight: 900,
-                      letterSpacing: "1px",
-                      flexShrink: 0,
-                    }}
-                  >
-                    {formatFunds(item.price)}
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <button
-                    type="button"
-                    style={{
-                      ...btnSmall,
-                      background: S.gold,
-                      color: "#000",
-                      flex: "none",
-                      padding: "7px 14px",
-                    }}
-                    onClick={() => handlePurchase(item)}
-                  >
-                    PURCHASE
-                  </button>
-                  {isSovereign && (
-                    <button
-                      type="button"
-                      style={{
-                        ...btnSmall,
-                        background: S.red,
-                        color: "#fff",
-                        flex: "none",
-                        padding: "7px 10px",
-                      }}
-                      onClick={() => handleDeleteItem(item.id)}
-                    >
-                      DELETE
-                    </button>
-                  )}
-                  {errors[item.id] && (
-                    <span
-                      style={{
-                        fontSize: "0.6rem",
-                        color: S.red,
-                        fontWeight: 900,
-                        letterSpacing: "1px",
-                        alignSelf: "center",
-                      }}
-                    >
-                      ⚠ {errors[item.id]}
-                    </span>
-                  )}
-                  {successIds[item.id] && (
-                    <span
-                      style={{
-                        fontSize: "0.6rem",
-                        color: S.green,
-                        fontWeight: 900,
-                        letterSpacing: "1px",
-                        alignSelf: "center",
-                      }}
-                    >
-                      ✓ APPROVED
-                    </span>
-                  )}
-                </div>
+                    </div>
+                  ))
+                )}
               </div>
-            ))}
-          </div>
-        )}
+            </div>
+          );
+        })()}
+
         {isSovereign && (
           <div>
             <button
@@ -3740,6 +4018,15 @@ function FacilityMenu({
                   step={0.01}
                   value={newPrice}
                   onChange={(e) => setNewPrice(e.target.value)}
+                  style={{ ...inputStyle, marginBottom: "0" }}
+                />
+                <input
+                  type="number"
+                  placeholder="STOCK QTY (leave blank = unlimited)"
+                  min={0}
+                  step={1}
+                  value={newStock}
+                  onChange={(e) => setNewStock(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleAddItem()}
                   style={{ ...inputStyle, marginBottom: "0" }}
                 />
@@ -4634,11 +4921,21 @@ export default function App() {
   // Global active office — determines which office's data is shown for all facilities
   const [activeOffice, setActiveOffice] = useState<OfficeLocation | null>(null);
   const [officePickerOpen, setOfficePickerOpen] = useState(false);
+  // Snapshot of all menu items — polled so sold-out lists in tiles stay fresh
+  const [menuSnapshot, setMenuSnapshot] = useState<MenuItem[]>(getMenuItems);
 
   // Poll lockdown state every 3s so all users see changes made by L6 on any device
   useEffect(() => {
     const id = setInterval(() => {
       setLockdownState(getLockdown());
+    }, 3000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Poll menu items every 3s so sold-out badges on tiles stay current
+  useEffect(() => {
+    const id = setInterval(() => {
+      setMenuSnapshot(getMenuItems());
     }, 3000);
     return () => clearInterval(id);
   }, []);
@@ -5416,74 +5713,175 @@ export default function App() {
             marginBottom: "30px",
           }}
         >
-          {FACILITIES.map((f) => (
-            <button
-              type="button"
-              key={f.id}
-              onClick={() => user && openSector(f.id)}
-              style={{
-                background: "#0c0c0c",
-                border: `1px solid ${selectedSector === f.id ? S.gold : S.brd}`,
-                cursor: user ? "pointer" : "default",
-                height: "100px",
-                display: "flex",
-                alignItems: "center",
-                padding: "0 20px",
-                transition: "border-color 0.15s",
-                borderLeft:
-                  selectedSector === f.id
-                    ? `4px solid ${S.gold}`
-                    : `1px solid ${S.brd}`,
-                width: "100%",
-                textAlign: "left",
-              }}
-              onMouseEnter={(e) => {
-                if (user) {
-                  (e.currentTarget as HTMLButtonElement).style.borderColor =
-                    S.gold;
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (selectedSector !== f.id) {
-                  (e.currentTarget as HTMLButtonElement).style.borderColor =
-                    S.brd;
-                }
-              }}
-            >
+          {FACILITIES.map((f) => {
+            const facilityKey = activeOffice
+              ? `${activeOffice.name}::${f.id}`
+              : f.id;
+            const soldOut = menuSnapshot.filter(
+              (item) =>
+                item.facility === facilityKey &&
+                item.stock !== undefined &&
+                item.stock <= 0,
+            );
+            return (
               <div
+                key={f.id}
                 style={{
-                  fontSize: "2rem",
-                  marginRight: "20px",
-                  minWidth: "50px",
-                  textAlign: "center",
+                  background: "#0c0c0c",
+                  border: `1px solid ${selectedSector === f.id ? S.gold : S.brd}`,
+                  transition: "border-color 0.15s",
+                  borderLeft:
+                    selectedSector === f.id
+                      ? `4px solid ${S.gold}`
+                      : `1px solid ${S.brd}`,
+                  width: "100%",
+                  textAlign: "left",
                 }}
               >
-                {f.icon}
-              </div>
-              <div>
-                <h4
+                {/* Clickable header row */}
+                <button
+                  type="button"
+                  data-ocid={`facility.${f.id.toLowerCase().replace(/\s+/g, "_")}.button`}
+                  onClick={() => user && openSector(f.id)}
                   style={{
-                    margin: 0,
-                    fontSize: "0.9rem",
-                    color: selectedSector === f.id ? S.gold : S.white,
-                    letterSpacing: "2px",
+                    background: "transparent",
+                    border: "none",
+                    cursor: user ? "pointer" : "default",
+                    height: "100px",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "0 20px",
+                    width: "100%",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (user) {
+                      const parent = (e.currentTarget as HTMLButtonElement)
+                        .parentElement;
+                      if (parent) parent.style.borderColor = S.gold;
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (selectedSector !== f.id) {
+                      const parent = (e.currentTarget as HTMLButtonElement)
+                        .parentElement;
+                      if (parent) parent.style.borderColor = S.brd;
+                    }
                   }}
                 >
-                  {f.id}
-                </h4>
-                <p
-                  style={{
-                    margin: "4px 0 0",
-                    fontSize: "0.6rem",
-                    color: S.dim,
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {f.d}
-                </p>
+                  <div
+                    style={{
+                      fontSize: "2rem",
+                      marginRight: "20px",
+                      minWidth: "50px",
+                      textAlign: "center",
+                    }}
+                  >
+                    {f.icon}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h4
+                      style={{
+                        margin: 0,
+                        fontSize: "0.9rem",
+                        color: selectedSector === f.id ? S.gold : S.white,
+                        letterSpacing: "2px",
+                      }}
+                    >
+                      {f.id}
+                    </h4>
+                    <p
+                      style={{
+                        margin: "4px 0 0",
+                        fontSize: "0.6rem",
+                        color: S.dim,
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {f.d}
+                    </p>
+                  </div>
+                  {soldOut.length > 0 && (
+                    <span
+                      style={{
+                        background: S.red,
+                        color: "#fff",
+                        fontSize: "0.55rem",
+                        fontWeight: 900,
+                        letterSpacing: "1px",
+                        padding: "2px 6px",
+                        borderRadius: "2px",
+                        flexShrink: 0,
+                        marginLeft: "8px",
+                      }}
+                    >
+                      {soldOut.length} SOLD OUT
+                    </span>
+                  )}
+                </button>
+
+                {/* Sold-out scroll list — only shown when there are sold-out items */}
+                {soldOut.length > 0 && (
+                  <div
+                    style={{
+                      borderTop: `1px solid ${S.red}44`,
+                      padding: "6px 20px 10px 20px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "0.5rem",
+                        color: S.red,
+                        letterSpacing: "3px",
+                        fontWeight: 900,
+                        marginBottom: "5px",
+                      }}
+                    >
+                      SOLD OUT
+                    </div>
+                    <div
+                      className="xution-scroll"
+                      style={{
+                        maxHeight: "80px",
+                        overflowY: "auto",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                      }}
+                    >
+                      {soldOut.map((item) => (
+                        <div
+                          key={`tile-so-${item.id}`}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            fontSize: "0.6rem",
+                            color: S.white,
+                            letterSpacing: "1px",
+                            paddingBottom: "3px",
+                            borderBottom: `1px solid ${S.brd}`,
+                          }}
+                        >
+                          <span style={{ fontWeight: 900 }}>{item.name}</span>
+                          <span
+                            style={{
+                              color: S.gold,
+                              fontWeight: 900,
+                              marginLeft: "8px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {formatFunds(item.price)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
 
         {/* Sector Workspace */}
