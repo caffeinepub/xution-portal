@@ -1602,7 +1602,11 @@ function GlobalTransactionHistory() {
 
 // ─── AuthScreen ───────────────────────────────────────────────────────────────
 
-function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
+function AuthScreen({
+  onLogin,
+}: {
+  onLogin: (user: CurrentUser, isOnline: boolean) => void;
+}) {
   const [mode, setMode] = useState<"up" | "in">("up");
   const [name, setName] = useState("");
   const [lvl, setLvl] = useState(1);
@@ -1719,13 +1723,16 @@ function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
           setDB(updatedDb);
           addActivity(`NEW ID REGISTERED: ${n}`);
           setLoading(false);
-          onLogin({
-            name: n,
-            lvl: Number(loggedUser.level),
-            q: loggedUser.question,
-            a: loggedUser.answer,
-            uid,
-          });
+          onLogin(
+            {
+              name: n,
+              lvl: Number(loggedUser.level),
+              q: loggedUser.question,
+              a: loggedUser.answer,
+              uid,
+            },
+            true,
+          );
         } catch {
           // loginUser failed after registration; generate local uid and cache
           const uid = generateUID();
@@ -1734,7 +1741,7 @@ function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
           setDB(updatedDb);
           addActivity(`NEW ID REGISTERED: ${n}`);
           setLoading(false);
-          onLogin({ name: n, lvl, q, a: a.trim().toLowerCase(), uid });
+          onLogin({ name: n, lvl, q, a: a.trim().toLowerCase(), uid }, true);
         }
       } catch {
         // Backend offline or error — register locally only
@@ -1745,7 +1752,7 @@ function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
         setDB(db);
         addActivity(`NEW ID REGISTERED: ${n} (OFFLINE)`);
         setLoading(false);
-        onLogin({ name: n, ...record });
+        onLogin({ name: n, ...record }, false);
       }
     } else {
       // LOGIN mode
@@ -1770,13 +1777,16 @@ function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
         setDB(updatedDb);
         addActivity(`ID LOGGED IN: ${n}`);
         setLoading(false);
-        onLogin({
-          name: n,
-          lvl: Number(loggedUser.level),
-          q: loggedUser.question,
-          a: loggedUser.answer,
-          uid: loggedUser.uid,
-        });
+        onLogin(
+          {
+            name: n,
+            lvl: Number(loggedUser.level),
+            q: loggedUser.question,
+            a: loggedUser.answer,
+            uid: loggedUser.uid,
+          },
+          true,
+        );
       } catch {
         // Backend offline or invalid credentials — try localStorage fallback
         if (!db[n]) {
@@ -1792,7 +1802,7 @@ function AuthScreen({ onLogin }: { onLogin: (user: CurrentUser) => void }) {
         setOfflineMode(true);
         addActivity(`ID LOGGED IN: ${n} (OFFLINE)`);
         setLoading(false);
-        onLogin({ name: n, ...db[n] });
+        onLogin({ name: n, ...db[n] }, false);
       }
     }
   };
@@ -2930,6 +2940,7 @@ function MemberList({
   onDM: (name: string) => void;
   lockdown: boolean;
 }) {
+  const { actor } = useActor();
   const [db, setDbState] = useState<UserDB>(getDB);
   const [expanded, setExpanded] = useState(false);
   const [favs, setFavs] = useState<string[]>(() =>
@@ -2963,6 +2974,10 @@ function MemberList({
     addActivity(`MODIFIED ${name} TO L${newLvl}`);
     refresh();
     onActivity();
+    // Background sync to backend (fire-and-forget)
+    if (actor) {
+      actor.updateUserLevel(name, BigInt(newLvl)).catch(() => {});
+    }
   };
 
   const delMem = (name: string) => {
@@ -2974,6 +2989,10 @@ function MemberList({
       addActivity(`DELETED IDENTITY: ${name}`);
       refresh();
       onActivity();
+      // Background sync to backend (fire-and-forget)
+      if (actor) {
+        actor.deleteUser(name).catch(() => {});
+      }
     }
   };
 
@@ -4909,6 +4928,7 @@ function EditableSection({
 
 export default function App() {
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [isOnline, setIsOnline] = useState(false);
   const [activities, setActivities] =
     useState<ActivityEntry[]>(get24hActivities);
   const [ebActive, setEbActive] = useState(!!getBroadcastMsg());
@@ -4923,6 +4943,9 @@ export default function App() {
   const [officePickerOpen, setOfficePickerOpen] = useState(false);
   // Snapshot of all menu items — polled so sold-out lists in tiles stay fresh
   const [menuSnapshot, setMenuSnapshot] = useState<MenuItem[]>(getMenuItems);
+
+  // Actor for reconnect polling
+  const { actor } = useActor();
 
   // Poll lockdown state every 3s so all users see changes made by L6 on any device
   useEffect(() => {
@@ -4939,6 +4962,42 @@ export default function App() {
     }, 3000);
     return () => clearInterval(id);
   }, []);
+
+  // Reconnect polling — if offline, try every 30s to reconnect via backend
+  useEffect(() => {
+    if (isOnline || !user) return;
+    const id = setInterval(async () => {
+      if (!actor) return;
+      try {
+        const loggedUser = await actor.loginUser(user.name, user.a);
+        // Update localStorage with fresh backend data
+        const updatedDb = getDB();
+        updatedDb[user.name] = {
+          lvl: Number(loggedUser.level),
+          q: loggedUser.question,
+          a: loggedUser.answer,
+          uid: loggedUser.uid,
+        };
+        setDB(updatedDb);
+        // Update user state with potentially refreshed level
+        setUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                lvl: Number(loggedUser.level),
+                q: loggedUser.question,
+                a: loggedUser.answer,
+                uid: loggedUser.uid,
+              }
+            : prev,
+        );
+        setIsOnline(true);
+      } catch {
+        // Still offline — remain as-is
+      }
+    }, 30000);
+    return () => clearInterval(id);
+  }, [isOnline, user, actor]);
 
   const toggleLockdown = () => {
     const next = !lockdown;
@@ -4967,8 +5026,9 @@ export default function App() {
     return () => window.removeEventListener("xution-eb", handler);
   }, []);
 
-  const handleLogin = (u: CurrentUser) => {
+  const handleLogin = (u: CurrentUser, online: boolean) => {
     setUser(u);
+    setIsOnline(online);
     setAvatarUrl(getAvatar(u.name));
     refreshActivities();
   };
@@ -5017,7 +5077,7 @@ export default function App() {
       }}
     >
       {/* Auth Screen */}
-      {!user && <AuthScreen onLogin={handleLogin} />}
+      {!user && <AuthScreen onLogin={(u, online) => handleLogin(u, online)} />}
 
       {/* Emergency Banner */}
       {ebActive && (
@@ -5294,6 +5354,43 @@ export default function App() {
                 >
                   {user ? `LEVEL ${user.lvl}` : "UNAFFILIATED"}
                 </div>
+                {/* Online / Offline badge */}
+                {user && (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      marginTop: "5px",
+                      fontSize: "0.55rem",
+                      fontWeight: 900,
+                      letterSpacing: "2px",
+                      color: isOnline ? S.green : S.blue,
+                    }}
+                  >
+                    {isOnline ? (
+                      <>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            width: "6px",
+                            height: "6px",
+                            borderRadius: "50%",
+                            background: S.green,
+                            boxShadow: `0 0 6px ${S.green}`,
+                            flexShrink: 0,
+                          }}
+                        />
+                        ONLINE
+                      </>
+                    ) : (
+                      <>
+                        <span style={{ flexShrink: 0 }}>⚡</span>
+                        OFFLINE MODE
+                      </>
+                    )}
+                  </div>
+                )}
                 {user?.uid && (
                   <div
                     style={{
