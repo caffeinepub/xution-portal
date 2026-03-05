@@ -414,6 +414,17 @@ function getDMUnreadCount(me: string, other: string): number {
     .length;
 }
 
+// ─── Presence helpers ─────────────────────────────────────────────────────────
+
+function setPresence(name: string): void {
+  localStorage.setItem(`x_presence_${name}`, String(Date.now()));
+}
+
+function getPresence(name: string): boolean {
+  const ts = Number(localStorage.getItem(`x_presence_${name}`) || "0");
+  return ts > 0 && Date.now() - ts < 60000;
+}
+
 // ─── Favourites helpers ───────────────────────────────────────────────────────
 
 function getFavouritesKey(me: string): string {
@@ -2027,6 +2038,15 @@ function DMPanel({
   const [isFav, setIsFav] = useState(() =>
     getFavourites(currentUser.name).includes(target),
   );
+  const [targetOnline, setTargetOnline] = useState(() => getPresence(target));
+
+  // Poll target presence every 5 seconds
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTargetOnline(getPresence(target));
+    }, 5000);
+    return () => clearInterval(id);
+  }, [target]);
 
   const handleFavToggle = () => {
     const next = toggleFavourite(currentUser.name, target);
@@ -2086,22 +2106,43 @@ function DMPanel({
           background: "#080808",
         }}
       >
-        <span
+        <div
           style={{
-            color: S.gold,
-            fontSize: "0.75rem",
-            fontWeight: 900,
-            letterSpacing: "2px",
-            textTransform: "uppercase",
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
             flex: 1,
             minWidth: 0,
             overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
           }}
         >
-          DM: {target}
-        </span>
+          <span
+            style={{
+              color: S.gold,
+              fontSize: "0.75rem",
+              fontWeight: 900,
+              letterSpacing: "2px",
+              textTransform: "uppercase",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            DM: {target}
+          </span>
+          <span
+            style={{
+              fontSize: "0.5rem",
+              fontWeight: 900,
+              letterSpacing: "1px",
+              color: targetOnline ? S.green : "#444",
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {targetOnline ? "● ONLINE" : "○ OFFLINE"}
+          </span>
+        </div>
         <button
           type="button"
           title={isFav ? "REMOVE FAVOURITE" : "ADD FAVOURITE"}
@@ -2286,6 +2327,9 @@ function MemberRow({
   const [unread, setUnread] = useState(() =>
     isSelf ? 0 : getDMUnreadCount(currentUser.name, memberName),
   );
+  const [memberOnline, setMemberOnline] = useState(() =>
+    getPresence(memberName),
+  );
 
   // Poll for new messages every 3 seconds
   useEffect(() => {
@@ -2295,6 +2339,14 @@ function MemberRow({
     }, 3000);
     return () => clearInterval(id);
   }, [memberName, currentUser.name, isSelf]);
+
+  // Poll presence every 5 seconds
+  useEffect(() => {
+    const id = setInterval(() => {
+      setMemberOnline(getPresence(memberName));
+    }, 5000);
+    return () => clearInterval(id);
+  }, [memberName]);
 
   return (
     <div
@@ -2357,7 +2409,18 @@ function MemberRow({
           }}
           title={isSelf ? undefined : `DM ${memberName}`}
         >
-          {memberName} [L{db[memberName]?.lvl ?? "?"}]
+          {memberName} [L{db[memberName]?.lvl ?? "?"}]{/* Presence badge */}
+          <span
+            style={{
+              color: memberOnline ? "#00ff41" : "#444",
+              fontSize: "0.55rem",
+              marginLeft: "8px",
+              fontWeight: 900,
+              letterSpacing: "0.5px",
+            }}
+          >
+            {memberOnline ? "● ONLINE" : "○ OFFLINE"}
+          </span>
           {isSelf && (
             <span
               style={{
@@ -4947,6 +5010,20 @@ export default function App() {
   // Actor for reconnect polling
   const { actor } = useActor();
 
+  // Presence interval ref — kept alive while user is logged in
+  const presenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
+
+  // Clean up presence interval on unmount
+  useEffect(() => {
+    return () => {
+      if (presenceIntervalRef.current) {
+        clearInterval(presenceIntervalRef.current);
+      }
+    };
+  }, []);
+
   // Poll lockdown state every 3s so all users see changes made by L6 on any device
   useEffect(() => {
     const id = setInterval(() => {
@@ -5031,6 +5108,13 @@ export default function App() {
     setIsOnline(online);
     setAvatarUrl(getAvatar(u.name));
     refreshActivities();
+
+    // Start presence heartbeat
+    setPresence(u.name);
+    if (presenceIntervalRef.current) clearInterval(presenceIntervalRef.current);
+    presenceIntervalRef.current = setInterval(() => {
+      setPresence(u.name);
+    }, 20000);
   };
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -5062,6 +5146,10 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    if (presenceIntervalRef.current) {
+      clearInterval(presenceIntervalRef.current);
+      presenceIntervalRef.current = null;
+    }
     window.location.reload();
   };
 
