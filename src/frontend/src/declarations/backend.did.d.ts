@@ -10,6 +10,42 @@ import type { ActorMethod } from '@icp-sdk/core/agent';
 import type { IDL } from '@icp-sdk/core/candid';
 import type { Principal } from '@icp-sdk/core/principal';
 
+export interface ActivityEntry { 'ts' : string, 'msg' : string }
+export interface AdminPost {
+  'id' : string,
+  'content' : string,
+  'date' : string,
+  'minLvl' : bigint,
+  'sector' : string,
+  'author' : string,
+}
+export interface MenuItem {
+  'id' : string,
+  'name' : string,
+  'createdBy' : string,
+  'description' : string,
+  'stock' : bigint,
+  'price' : number,
+  'facility' : string,
+}
+export interface SectorLog {
+  'id' : string,
+  'title' : string,
+  'body' : string,
+  'date' : string,
+  'sector' : string,
+  'level' : bigint,
+  'author' : string,
+}
+export interface Transaction {
+  'id' : string,
+  'ts' : string,
+  'member' : string,
+  'changedBy' : string,
+  'description' : string,
+  'newAmount' : number,
+  'prevAmount' : number,
+}
 export interface User {
   'uid' : string,
   'question' : string,
@@ -18,12 +54,59 @@ export interface User {
   'level' : bigint,
 }
 export interface _SERVICE {
+  'addActivity' : ActorMethod<[string, string], undefined>,
+  'addAdminPost' : ActorMethod<
+    [string, string, bigint, string, string],
+    string
+  >,
+  'addMenuItem' : ActorMethod<
+    [string, string, number, string, string, bigint],
+    string
+  >,
+  'addSectorLog' : ActorMethod<
+    [string, string, string, string, bigint, string],
+    string
+  >,
+  'addTransaction' : ActorMethod<
+    [string, number, number, string, string, string],
+    string
+  >,
+  'clearBroadcast' : ActorMethod<[], undefined>,
+  'clearOldActivities' : ActorMethod<[], undefined>,
+  'deleteAdminPost' : ActorMethod<[string], undefined>,
+  'deleteMenuItem' : ActorMethod<[string], undefined>,
+  'deleteSectorLog' : ActorMethod<[string], undefined>,
   'deleteUser' : ActorMethod<[string], undefined>,
+  'getActivities' : ActorMethod<[], Array<ActivityEntry>>,
+  'getAdminPosts' : ActorMethod<[string], Array<AdminPost>>,
+  'getAllAdminPosts' : ActorMethod<[], Array<AdminPost>>,
+  'getAllMemberFunds' : ActorMethod<[], Array<[string, number]>>,
+  'getAllMenuItems' : ActorMethod<[], Array<MenuItem>>,
+  'getAllSectorLogs' : ActorMethod<[], Array<SectorLog>>,
+  'getAllTransactions' : ActorMethod<[], Array<Transaction>>,
   'getAllUsers' : ActorMethod<[], Array<[string, bigint]>>,
+  'getBroadcast' : ActorMethod<[], string>,
+  'getCardNumber' : ActorMethod<[string], string>,
+  'getContent' : ActorMethod<[string], string>,
+  'getLockdown' : ActorMethod<[], boolean>,
+  'getMemberFunds' : ActorMethod<[string], number>,
+  'getMemberTransactions' : ActorMethod<[string], Array<Transaction>>,
+  'getMenuItems' : ActorMethod<[string], Array<MenuItem>>,
+  'getOfficeLocations' : ActorMethod<[], string>,
+  'getSectorLogs' : ActorMethod<[string], Array<SectorLog>>,
   'getSecurityQuestion' : ActorMethod<[string], string>,
   'getUserCount' : ActorMethod<[], bigint>,
   'loginUser' : ActorMethod<[string, string], User>,
   'registerUser' : ActorMethod<[string, string, string], undefined>,
+  'setBroadcast' : ActorMethod<[string], undefined>,
+  'setCardNumber' : ActorMethod<[string, string], undefined>,
+  'setContent' : ActorMethod<[string, string], undefined>,
+  'setLockdown' : ActorMethod<[boolean], undefined>,
+  'setMemberFunds' : ActorMethod<[string, number], undefined>,
+  'setOfficeLocations' : ActorMethod<[string], undefined>,
+  'updateAdminPost' : ActorMethod<[string, string], undefined>,
+  'updateMenuItemStock' : ActorMethod<[string, bigint], undefined>,
+  'updateSectorLog' : ActorMethod<[string, string], undefined>,
   'updateUserLevel' : ActorMethod<[string, bigint], undefined>,
   'userExists' : ActorMethod<[string], boolean>,
 }

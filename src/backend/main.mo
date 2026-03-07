@@ -1,10 +1,16 @@
-import Map "mo:core/Map";
-import Text "mo:core/Text";
-import Nat "mo:core/Nat";
 import Array "mo:core/Array";
-import Char "mo:core/Char";
+import Map "mo:core/Map";
+import Bool "mo:core/Bool";
+import Time "mo:core/Time";
 import Iter "mo:core/Iter";
+import Text "mo:core/Text";
 import Runtime "mo:core/Runtime";
+import Nat "mo:core/Nat";
+import Int "mo:core/Int";
+import Char "mo:core/Char";
+import Float "mo:core/Float";
+
+
 
 actor {
   type User = {
@@ -15,9 +21,66 @@ actor {
     uid : Text;
   };
 
+  type SectorLog = {
+    id : Text;
+    sector : Text;
+    title : Text;
+    body : Text;
+    author : Text;
+    level : Nat;
+    date : Text;
+  };
+
+  type AdminPost = {
+    id : Text;
+    author : Text;
+    content : Text;
+    minLvl : Nat;
+    date : Text;
+    sector : Text;
+  };
+
+  type MenuItem = {
+    id : Text;
+    facility : Text;
+    name : Text;
+    price : Float;
+    description : Text;
+    createdBy : Text;
+    stock : Int;
+  };
+
+  type Transaction = {
+    id : Text;
+    member : Text;
+    prevAmount : Float;
+    newAmount : Float;
+    changedBy : Text;
+    ts : Text;
+    description : Text;
+  };
+
+  type ActivityEntry = {
+    msg : Text;
+    ts : Text;
+  };
+
   var nextId = 10000;
   let users = Map.empty<Text, User>();
+  let sectorLogs = Map.empty<Text, SectorLog>();
+  let adminPosts = Map.empty<Text, AdminPost>();
+  let menuItems = Map.empty<Text, MenuItem>();
+  let transactions = Map.empty<Text, Transaction>();
+  let memberFunds = Map.empty<Text, Float>();
+  let cardNumbers = Map.empty<Text, Text>();
+  let contents = Map.empty<Text, Text>();
+  let activities = Map.empty<Text, ActivityEntry>();
 
+  var broadcast : Text = "";
+  var lockdown = false;
+  var officeLocations : Text = "";
+
+  // User Authentication Methods
   public query ({ caller }) func userExists(name : Text) : async Bool {
     users.containsKey(name);
   };
@@ -140,5 +203,294 @@ actor {
       case (null) { Runtime.trap("Could not delete user: user does not exist.") };
       case (?_) { users.remove(nameNormalized) };
     };
+  };
+
+  // Portal Methods
+
+  // 1. Sector Logs
+  public shared ({ caller }) func addSectorLog(
+    sector : Text,
+    title : Text,
+    body : Text,
+    author : Text,
+    level : Nat,
+    date : Text,
+  ) : async Text {
+    let id = (sectorLogs.size() + 1).toText();
+    let log : SectorLog = {
+      id;
+      sector;
+      title;
+      body;
+      author;
+      level;
+      date;
+    };
+    sectorLogs.add(id, log);
+    id;
+  };
+
+  public query ({ caller }) func getSectorLogs(sector : Text) : async [SectorLog] {
+    sectorLogs.values().toArray().filter(
+      func(log) {
+        log.sector == sector;
+      }
+    );
+  };
+
+  public shared ({ caller }) func updateSectorLog(id : Text, newBody : Text) : async () {
+    switch (sectorLogs.get(id)) {
+      case (null) { Runtime.trap("Sector log not found") };
+      case (?log) {
+        let updatedLog = { log with body = newBody };
+        sectorLogs.add(id, updatedLog);
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteSectorLog(id : Text) : async () {
+    if (not sectorLogs.containsKey(id)) {
+      Runtime.trap("Sector log not found");
+    };
+    sectorLogs.remove(id);
+  };
+
+  public query ({ caller }) func getAllSectorLogs() : async [SectorLog] {
+    sectorLogs.values().toArray();
+  };
+
+  // 2. Admin Posts
+  public shared ({ caller }) func addAdminPost(
+    author : Text,
+    content : Text,
+    minLvl : Nat,
+    date : Text,
+    sector : Text,
+  ) : async Text {
+    let id = (adminPosts.size() + 1).toText();
+    let post : AdminPost = {
+      id;
+      author;
+      content;
+      minLvl;
+      date;
+      sector;
+    };
+    adminPosts.add(id, post);
+    id;
+  };
+
+  public query ({ caller }) func getAdminPosts(sector : Text) : async [AdminPost] {
+    adminPosts.values().toArray().filter(
+      func(post) {
+        post.sector == sector;
+      }
+    );
+  };
+
+  public shared ({ caller }) func updateAdminPost(id : Text, newContent : Text) : async () {
+    switch (adminPosts.get(id)) {
+      case (null) { Runtime.trap("Admin post not found") };
+      case (?post) {
+        let updatedPost = { post with content = newContent };
+        adminPosts.add(id, updatedPost);
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteAdminPost(id : Text) : async () {
+    if (not adminPosts.containsKey(id)) {
+      Runtime.trap("Admin post not found");
+    };
+    adminPosts.remove(id);
+  };
+
+  public query ({ caller }) func getAllAdminPosts() : async [AdminPost] {
+    adminPosts.values().toArray();
+  };
+
+  // 3. Menu Items
+  public shared ({ caller }) func addMenuItem(
+    facility : Text,
+    name : Text,
+    price : Float,
+    description : Text,
+    createdBy : Text,
+    stock : Int,
+  ) : async Text {
+    let id = (menuItems.size() + 1).toText();
+    let item : MenuItem = {
+      id;
+      facility;
+      name;
+      price;
+      description;
+      createdBy;
+      stock;
+    };
+    menuItems.add(id, item);
+    id;
+  };
+
+  public query ({ caller }) func getMenuItems(facility : Text) : async [MenuItem] {
+    menuItems.values().toArray().filter(
+      func(item) {
+        item.facility == facility;
+      }
+    );
+  };
+
+  public shared ({ caller }) func updateMenuItemStock(id : Text, newStock : Int) : async () {
+    switch (menuItems.get(id)) {
+      case (null) { Runtime.trap("Menu item not found") };
+      case (?item) {
+        let updatedItem = { item with stock = newStock };
+        menuItems.add(id, updatedItem);
+      };
+    };
+  };
+
+  public shared ({ caller }) func deleteMenuItem(id : Text) : async () {
+    if (not menuItems.containsKey(id)) {
+      Runtime.trap("Menu item not found");
+    };
+    menuItems.remove(id);
+  };
+
+  public query ({ caller }) func getAllMenuItems() : async [MenuItem] {
+    menuItems.values().toArray();
+  };
+
+  // 4. Transactions
+  public shared ({ caller }) func addTransaction(
+    member : Text,
+    prevAmount : Float,
+    newAmount : Float,
+    changedBy : Text,
+    ts : Text,
+    description : Text,
+  ) : async Text {
+    let id = (transactions.size() + 1).toText();
+    let transaction : Transaction = {
+      id;
+      member;
+      prevAmount;
+      newAmount;
+      changedBy;
+      ts;
+      description;
+    };
+    transactions.add(id, transaction);
+    id;
+  };
+
+  public query ({ caller }) func getMemberTransactions(member : Text) : async [Transaction] {
+    transactions.values().toArray().filter(
+      func(transaction) {
+        transaction.member == member;
+      }
+    );
+  };
+
+  public query ({ caller }) func getAllTransactions() : async [Transaction] {
+    transactions.values().toArray();
+  };
+
+  // 5. Member Funds
+  public query ({ caller }) func getMemberFunds(name : Text) : async Float {
+    switch (memberFunds.get(name)) {
+      case (null) { 0.0 };
+      case (?amount) { amount };
+    };
+  };
+
+  public shared ({ caller }) func setMemberFunds(name : Text, amount : Float) : async () {
+    memberFunds.add(name, amount);
+  };
+
+  public query ({ caller }) func getAllMemberFunds() : async [(Text, Float)] {
+    memberFunds.toArray();
+  };
+
+  // 6. Card Numbers
+  public query ({ caller }) func getCardNumber(name : Text) : async Text {
+    switch (cardNumbers.get(name)) {
+      case (null) { "" };
+      case (?cardNum) { cardNum };
+    };
+  };
+
+  public shared ({ caller }) func setCardNumber(name : Text, cardNum : Text) : async () {
+    cardNumbers.add(name, cardNum);
+  };
+
+  // 7. Emergency Broadcast
+  public query ({ caller }) func getBroadcast() : async Text {
+    broadcast;
+  };
+
+  public shared ({ caller }) func setBroadcast(msg : Text) : async () {
+    broadcast := msg;
+  };
+
+  public shared ({ caller }) func clearBroadcast() : async () {
+    broadcast := "";
+  };
+
+  // 8. Lockdown State
+  public query ({ caller }) func getLockdown() : async Bool {
+    lockdown;
+  };
+
+  public shared ({ caller }) func setLockdown(active : Bool) : async () {
+    lockdown := active;
+  };
+
+  // 9. Office Locations
+  public query ({ caller }) func getOfficeLocations() : async Text {
+    officeLocations;
+  };
+
+  public shared ({ caller }) func setOfficeLocations(json : Text) : async () {
+    officeLocations := json;
+  };
+
+  // 10. Activity Log
+  public shared ({ caller }) func addActivity(msg : Text, ts : Text) : async () {
+    let id = (activities.size() + 1).toText();
+    let entry : ActivityEntry = {
+      msg;
+      ts;
+    };
+    activities.add(id, entry);
+  };
+
+  public query ({ caller }) func getActivities() : async [ActivityEntry] {
+    activities.values().toArray();
+  };
+
+  public shared ({ caller }) func clearOldActivities() : async () {
+    if (activities.size() > 100) {
+      let allEntries = activities.values().toArray();
+      activities.clear();
+      let entriesToKeep = allEntries.sliceToArray(allEntries.size().toInt() - 100, allEntries.size().toInt());
+      var i = 0;
+      while (i < entriesToKeep.size()) {
+        activities.add(i.toText(), entriesToKeep[i]);
+        i += 1;
+      };
+    };
+  };
+
+  // 11. About Content
+  public query ({ caller }) func getContent(key : Text) : async Text {
+    switch (contents.get(key)) {
+      case (null) { "" };
+      case (?value) { value };
+    };
+  };
+
+  public shared ({ caller }) func setContent(key : Text, value : Text) : async () {
+    contents.add(key, value);
   };
 };

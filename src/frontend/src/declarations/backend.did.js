@@ -8,6 +8,42 @@
 
 import { IDL } from '@icp-sdk/core/candid';
 
+export const ActivityEntry = IDL.Record({ 'ts' : IDL.Text, 'msg' : IDL.Text });
+export const AdminPost = IDL.Record({
+  'id' : IDL.Text,
+  'content' : IDL.Text,
+  'date' : IDL.Text,
+  'minLvl' : IDL.Nat,
+  'sector' : IDL.Text,
+  'author' : IDL.Text,
+});
+export const MenuItem = IDL.Record({
+  'id' : IDL.Text,
+  'name' : IDL.Text,
+  'createdBy' : IDL.Text,
+  'description' : IDL.Text,
+  'stock' : IDL.Int,
+  'price' : IDL.Float64,
+  'facility' : IDL.Text,
+});
+export const SectorLog = IDL.Record({
+  'id' : IDL.Text,
+  'title' : IDL.Text,
+  'body' : IDL.Text,
+  'date' : IDL.Text,
+  'sector' : IDL.Text,
+  'level' : IDL.Nat,
+  'author' : IDL.Text,
+});
+export const Transaction = IDL.Record({
+  'id' : IDL.Text,
+  'ts' : IDL.Text,
+  'member' : IDL.Text,
+  'changedBy' : IDL.Text,
+  'description' : IDL.Text,
+  'newAmount' : IDL.Float64,
+  'prevAmount' : IDL.Float64,
+});
 export const User = IDL.Record({
   'uid' : IDL.Text,
   'question' : IDL.Text,
@@ -17,16 +53,75 @@ export const User = IDL.Record({
 });
 
 export const idlService = IDL.Service({
+  'addActivity' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'addAdminPost' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Nat, IDL.Text, IDL.Text],
+      [IDL.Text],
+      [],
+    ),
+  'addMenuItem' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Float64, IDL.Text, IDL.Text, IDL.Int],
+      [IDL.Text],
+      [],
+    ),
+  'addSectorLog' : IDL.Func(
+      [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat, IDL.Text],
+      [IDL.Text],
+      [],
+    ),
+  'addTransaction' : IDL.Func(
+      [IDL.Text, IDL.Float64, IDL.Float64, IDL.Text, IDL.Text, IDL.Text],
+      [IDL.Text],
+      [],
+    ),
+  'clearBroadcast' : IDL.Func([], [], []),
+  'clearOldActivities' : IDL.Func([], [], []),
+  'deleteAdminPost' : IDL.Func([IDL.Text], [], []),
+  'deleteMenuItem' : IDL.Func([IDL.Text], [], []),
+  'deleteSectorLog' : IDL.Func([IDL.Text], [], []),
   'deleteUser' : IDL.Func([IDL.Text], [], []),
+  'getActivities' : IDL.Func([], [IDL.Vec(ActivityEntry)], ['query']),
+  'getAdminPosts' : IDL.Func([IDL.Text], [IDL.Vec(AdminPost)], ['query']),
+  'getAllAdminPosts' : IDL.Func([], [IDL.Vec(AdminPost)], ['query']),
+  'getAllMemberFunds' : IDL.Func(
+      [],
+      [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Float64))],
+      ['query'],
+    ),
+  'getAllMenuItems' : IDL.Func([], [IDL.Vec(MenuItem)], ['query']),
+  'getAllSectorLogs' : IDL.Func([], [IDL.Vec(SectorLog)], ['query']),
+  'getAllTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
   'getAllUsers' : IDL.Func(
       [],
       [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat))],
       ['query'],
     ),
+  'getBroadcast' : IDL.Func([], [IDL.Text], ['query']),
+  'getCardNumber' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+  'getContent' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+  'getLockdown' : IDL.Func([], [IDL.Bool], ['query']),
+  'getMemberFunds' : IDL.Func([IDL.Text], [IDL.Float64], ['query']),
+  'getMemberTransactions' : IDL.Func(
+      [IDL.Text],
+      [IDL.Vec(Transaction)],
+      ['query'],
+    ),
+  'getMenuItems' : IDL.Func([IDL.Text], [IDL.Vec(MenuItem)], ['query']),
+  'getOfficeLocations' : IDL.Func([], [IDL.Text], ['query']),
+  'getSectorLogs' : IDL.Func([IDL.Text], [IDL.Vec(SectorLog)], ['query']),
   'getSecurityQuestion' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
   'getUserCount' : IDL.Func([], [IDL.Nat], ['query']),
   'loginUser' : IDL.Func([IDL.Text, IDL.Text], [User], ['query']),
   'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+  'setBroadcast' : IDL.Func([IDL.Text], [], []),
+  'setCardNumber' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'setContent' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'setLockdown' : IDL.Func([IDL.Bool], [], []),
+  'setMemberFunds' : IDL.Func([IDL.Text, IDL.Float64], [], []),
+  'setOfficeLocations' : IDL.Func([IDL.Text], [], []),
+  'updateAdminPost' : IDL.Func([IDL.Text, IDL.Text], [], []),
+  'updateMenuItemStock' : IDL.Func([IDL.Text, IDL.Int], [], []),
+  'updateSectorLog' : IDL.Func([IDL.Text, IDL.Text], [], []),
   'updateUserLevel' : IDL.Func([IDL.Text, IDL.Nat], [], []),
   'userExists' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
 });
@@ -34,6 +129,42 @@ export const idlService = IDL.Service({
 export const idlInitArgs = [];
 
 export const idlFactory = ({ IDL }) => {
+  const ActivityEntry = IDL.Record({ 'ts' : IDL.Text, 'msg' : IDL.Text });
+  const AdminPost = IDL.Record({
+    'id' : IDL.Text,
+    'content' : IDL.Text,
+    'date' : IDL.Text,
+    'minLvl' : IDL.Nat,
+    'sector' : IDL.Text,
+    'author' : IDL.Text,
+  });
+  const MenuItem = IDL.Record({
+    'id' : IDL.Text,
+    'name' : IDL.Text,
+    'createdBy' : IDL.Text,
+    'description' : IDL.Text,
+    'stock' : IDL.Int,
+    'price' : IDL.Float64,
+    'facility' : IDL.Text,
+  });
+  const SectorLog = IDL.Record({
+    'id' : IDL.Text,
+    'title' : IDL.Text,
+    'body' : IDL.Text,
+    'date' : IDL.Text,
+    'sector' : IDL.Text,
+    'level' : IDL.Nat,
+    'author' : IDL.Text,
+  });
+  const Transaction = IDL.Record({
+    'id' : IDL.Text,
+    'ts' : IDL.Text,
+    'member' : IDL.Text,
+    'changedBy' : IDL.Text,
+    'description' : IDL.Text,
+    'newAmount' : IDL.Float64,
+    'prevAmount' : IDL.Float64,
+  });
   const User = IDL.Record({
     'uid' : IDL.Text,
     'question' : IDL.Text,
@@ -43,16 +174,75 @@ export const idlFactory = ({ IDL }) => {
   });
   
   return IDL.Service({
+    'addActivity' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'addAdminPost' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Nat, IDL.Text, IDL.Text],
+        [IDL.Text],
+        [],
+      ),
+    'addMenuItem' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Float64, IDL.Text, IDL.Text, IDL.Int],
+        [IDL.Text],
+        [],
+      ),
+    'addSectorLog' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Nat, IDL.Text],
+        [IDL.Text],
+        [],
+      ),
+    'addTransaction' : IDL.Func(
+        [IDL.Text, IDL.Float64, IDL.Float64, IDL.Text, IDL.Text, IDL.Text],
+        [IDL.Text],
+        [],
+      ),
+    'clearBroadcast' : IDL.Func([], [], []),
+    'clearOldActivities' : IDL.Func([], [], []),
+    'deleteAdminPost' : IDL.Func([IDL.Text], [], []),
+    'deleteMenuItem' : IDL.Func([IDL.Text], [], []),
+    'deleteSectorLog' : IDL.Func([IDL.Text], [], []),
     'deleteUser' : IDL.Func([IDL.Text], [], []),
+    'getActivities' : IDL.Func([], [IDL.Vec(ActivityEntry)], ['query']),
+    'getAdminPosts' : IDL.Func([IDL.Text], [IDL.Vec(AdminPost)], ['query']),
+    'getAllAdminPosts' : IDL.Func([], [IDL.Vec(AdminPost)], ['query']),
+    'getAllMemberFunds' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Float64))],
+        ['query'],
+      ),
+    'getAllMenuItems' : IDL.Func([], [IDL.Vec(MenuItem)], ['query']),
+    'getAllSectorLogs' : IDL.Func([], [IDL.Vec(SectorLog)], ['query']),
+    'getAllTransactions' : IDL.Func([], [IDL.Vec(Transaction)], ['query']),
     'getAllUsers' : IDL.Func(
         [],
         [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat))],
         ['query'],
       ),
+    'getBroadcast' : IDL.Func([], [IDL.Text], ['query']),
+    'getCardNumber' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'getContent' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'getLockdown' : IDL.Func([], [IDL.Bool], ['query']),
+    'getMemberFunds' : IDL.Func([IDL.Text], [IDL.Float64], ['query']),
+    'getMemberTransactions' : IDL.Func(
+        [IDL.Text],
+        [IDL.Vec(Transaction)],
+        ['query'],
+      ),
+    'getMenuItems' : IDL.Func([IDL.Text], [IDL.Vec(MenuItem)], ['query']),
+    'getOfficeLocations' : IDL.Func([], [IDL.Text], ['query']),
+    'getSectorLogs' : IDL.Func([IDL.Text], [IDL.Vec(SectorLog)], ['query']),
     'getSecurityQuestion' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
     'getUserCount' : IDL.Func([], [IDL.Nat], ['query']),
     'loginUser' : IDL.Func([IDL.Text, IDL.Text], [User], ['query']),
     'registerUser' : IDL.Func([IDL.Text, IDL.Text, IDL.Text], [], []),
+    'setBroadcast' : IDL.Func([IDL.Text], [], []),
+    'setCardNumber' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'setContent' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'setLockdown' : IDL.Func([IDL.Bool], [], []),
+    'setMemberFunds' : IDL.Func([IDL.Text, IDL.Float64], [], []),
+    'setOfficeLocations' : IDL.Func([IDL.Text], [], []),
+    'updateAdminPost' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'updateMenuItemStock' : IDL.Func([IDL.Text, IDL.Int], [], []),
+    'updateSectorLog' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'updateUserLevel' : IDL.Func([IDL.Text, IDL.Nat], [], []),
     'userExists' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
   });

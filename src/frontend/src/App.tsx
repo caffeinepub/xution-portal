@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActor } from "./hooks/useActor";
+// backend types are used via useActor() hook
+
+// ─── Canister type helpers ────────────────────────────────────────────────────
+// Map canister MenuItem stock (bigint: -1 = unlimited) ↔ frontend stock (undefined = unlimited)
+function canisterStockToLocal(s: bigint): number | undefined {
+  return s === BigInt(-1) ? undefined : Number(s);
+}
+function localStockToCanister(s: number | undefined): bigint {
+  return s === undefined ? BigInt(-1) : BigInt(s);
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -46,10 +56,19 @@ interface ActivityEntry {
   ts: string;
 }
 
+interface DMAttachment {
+  type: "image" | "video" | "audio" | "file" | "gif" | "voice";
+  dataUrl?: string; // for uploaded files encoded as base64
+  url?: string; // for GIF URLs
+  name?: string; // for files: filename
+  mimeType?: string;
+}
+
 interface DMMessage {
   from: string;
   text: string;
   ts: string;
+  attachments?: DMAttachment[];
 }
 
 interface TransactionEntry {
@@ -137,10 +156,15 @@ function get24hActivities(): ActivityEntry[] {
 }
 
 function addActivity(msg: string) {
+  const ts = new Date().toISOString();
   const raw = getRawActivities();
-  const entry: ActivityEntry = { msg, ts: new Date().toISOString() };
+  const entry: ActivityEntry = { msg, ts };
   raw.unshift(entry);
   localStorage.setItem("x_act_v22", JSON.stringify(raw.slice(0, 50)));
+  // Dispatch event so App can forward to canister
+  window.dispatchEvent(
+    new CustomEvent("xution-activity", { detail: { msg, ts } }),
+  );
 }
 
 function getSectorLogs(): SectorLog[] {
@@ -390,9 +414,15 @@ function getDMKey(a: string, b: string): string {
 function getDMs(a: string, b: string): DMMessage[] {
   return JSON.parse(localStorage.getItem(getDMKey(a, b)) || "[]");
 }
-function addDM(a: string, b: string, from: string, text: string) {
+function addDM(
+  a: string,
+  b: string,
+  from: string,
+  text: string,
+  attachments?: DMAttachment[],
+) {
   const msgs = getDMs(a, b);
-  msgs.push({ from, text, ts: new Date().toISOString() });
+  msgs.push({ from, text, ts: new Date().toISOString(), attachments });
   localStorage.setItem(getDMKey(a, b), JSON.stringify(msgs));
 }
 
@@ -793,6 +823,7 @@ function FundManagement({
   onUpdate: () => void;
   currentUser: CurrentUser;
 }) {
+  const { actor } = useActor();
   const [expanded, setExpanded] = useState(false);
   const [db] = useState<UserDB>(getDB);
   const [inputVals, setInputVals] = useState<Record<string, string>>({});
@@ -804,16 +835,29 @@ function FundManagement({
     const prev = getFunds(name);
     const next = Number.parseFloat(val.toFixed(2));
     setFunds(name, next);
+    const ts = new Date().toISOString();
     addTransaction({
       member: name,
       prevAmount: prev,
       newAmount: next,
       changedBy: currentUser.name,
-      ts: new Date().toISOString(),
+      ts,
       description: `FUND ADJUSTMENT BY ${currentUser.name}`,
     });
     setInputVals((prev) => ({ ...prev, [name]: "" }));
     onUpdate();
+    // Sync to canister
+    actor?.setMemberFunds(name, next).catch(() => {});
+    actor
+      ?.addTransaction(
+        name,
+        prev,
+        next,
+        currentUser.name,
+        ts,
+        `FUND ADJUSTMENT BY ${currentUser.name}`,
+      )
+      .catch(() => {});
   };
 
   return (
@@ -1140,6 +1184,7 @@ function PersonalFundManagement({
   currentUser: CurrentUser;
   onPurchase: () => void;
 }) {
+  const { actor } = useActor();
   const [expanded, setExpanded] = useState(false);
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -1195,16 +1240,28 @@ function PersonalFundManagement({
     if (!isSovereign) {
       setFunds(currentUser.name, newAmount);
       setFundsState(newAmount);
+      actor?.setMemberFunds(currentUser.name, newAmount).catch(() => {});
     }
 
+    const ts = new Date().toISOString();
     addTransaction({
       member: currentUser.name,
       prevAmount,
       newAmount,
       changedBy: currentUser.name,
-      ts: new Date().toISOString(),
+      ts,
       description: `PURCHASE: ${desc}`,
     });
+    actor
+      ?.addTransaction(
+        currentUser.name,
+        prevAmount,
+        newAmount,
+        currentUser.name,
+        ts,
+        `PURCHASE: ${desc}`,
+      )
+      .catch(() => {});
     addActivity(`PURCHASE: ${desc} BY ${currentUser.name}`);
 
     setDescription("");
@@ -2021,6 +2078,69 @@ function AuthScreen({
 
 // ─── DMPanel ──────────────────────────────────────────────────────────────────
 
+const EMOJI_LIST = [
+  "😀",
+  "😂",
+  "😍",
+  "😎",
+  "🤔",
+  "😢",
+  "😡",
+  "🥳",
+  "🤩",
+  "😴",
+  "😇",
+  "🥺",
+  "😏",
+  "🤗",
+  "🤯",
+  "😱",
+  "🤣",
+  "😜",
+  "😋",
+  "😬",
+  "👍",
+  "👎",
+  "👏",
+  "🙌",
+  "🤝",
+  "👋",
+  "✌️",
+  "🤞",
+  "🖖",
+  "💪",
+  "🙏",
+  "👀",
+  "💀",
+  "🔥",
+  "💯",
+  "❤️",
+  "💔",
+  "⭐",
+  "🌟",
+  "💥",
+  "🎉",
+  "🎊",
+  "🏆",
+  "🚀",
+  "💡",
+  "🔑",
+  "🎯",
+  "⚡",
+  "🌈",
+  "🍀",
+  "🐱",
+  "🐶",
+  "🦁",
+  "🐍",
+  "🦋",
+  "🌸",
+  "🍕",
+  "🎮",
+  "📱",
+  "💻",
+];
+
 function DMPanel({
   currentUser,
   target,
@@ -2034,11 +2154,29 @@ function DMPanel({
     getDMs(currentUser.name, target),
   );
   const [input, setInput] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<
+    (DMAttachment & { _key: number })[]
+  >([]);
+  const pendingKeyRef = useRef(0);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showGifPanel, setShowGifPanel] = useState(false);
+  const [gifUrl, setGifUrl] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isFav, setIsFav] = useState(() =>
     getFavourites(currentUser.name).includes(target),
   );
   const [targetOnline, setTargetOnline] = useState(() => getPresence(target));
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   // Poll target presence every 5 seconds
   useEffect(() => {
@@ -2073,10 +2211,278 @@ function DMPanel({
 
   const handleSend = () => {
     const text = input.trim();
-    if (!text) return;
-    addDM(currentUser.name, target, currentUser.name, text);
+    if (!text && pendingAttachments.length === 0) return;
+    const attachmentsToSend: DMAttachment[] = pendingAttachments.map(
+      ({ _key: _k, ...rest }) => rest,
+    );
+    addDM(
+      currentUser.name,
+      target,
+      currentUser.name,
+      text,
+      attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
+    );
     setInput("");
+    setPendingAttachments([]);
+    setShowEmojiPicker(false);
+    setShowGifPanel(false);
     refresh();
+  };
+
+  const readFileAsDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        type: "image",
+        dataUrl,
+        name: file.name,
+        mimeType: file.type,
+        _key: ++pendingKeyRef.current,
+      },
+    ]);
+    e.target.value = "";
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        type: "file",
+        dataUrl,
+        name: file.name,
+        mimeType: file.type,
+        _key: ++pendingKeyRef.current,
+      },
+    ]);
+    e.target.value = "";
+  };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        type: "video",
+        dataUrl,
+        name: file.name,
+        mimeType: file.type,
+        _key: ++pendingKeyRef.current,
+      },
+    ]);
+    e.target.value = "";
+  };
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        type: "audio",
+        dataUrl,
+        name: file.name,
+        mimeType: file.type,
+        _key: ++pendingKeyRef.current,
+      },
+    ]);
+    e.target.value = "";
+  };
+
+  const handleAddGif = () => {
+    if (!gifUrl.trim()) return;
+    setPendingAttachments((prev) => [
+      ...prev,
+      { type: "gif", url: gifUrl.trim(), _key: ++pendingKeyRef.current },
+    ]);
+    setGifUrl("");
+    setShowGifPanel(false);
+  };
+
+  const handleEmojiClick = (emoji: string) => {
+    setInput((prev) => prev + emoji);
+  };
+
+  const startRecording = async () => {
+    setRecordingError("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setRecordingError("MIC NOT SUPPORTED");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setIsRecording(true);
+    } catch {
+      setRecordingError("MIC ACCESS DENIED");
+    }
+  };
+
+  const stopRecording = () => {
+    const mr = mediaRecorderRef.current;
+    if (!mr) return;
+    mr.onstop = () => {
+      const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setPendingAttachments((prev) => [
+          ...prev,
+          {
+            type: "voice",
+            dataUrl,
+            mimeType: "audio/webm",
+            _key: ++pendingKeyRef.current,
+          },
+        ]);
+      };
+      reader.readAsDataURL(blob);
+      for (const t of mr.stream.getTracks()) t.stop();
+      mediaRecorderRef.current = null;
+    };
+    mr.stop();
+    setIsRecording(false);
+  };
+
+  const removePending = (key: number) => {
+    setPendingAttachments((prev) => prev.filter((a) => a._key !== key));
+  };
+
+  const toolbarBtnStyle: React.CSSProperties = {
+    width: "28px",
+    height: "28px",
+    background: "#111",
+    border: `1px solid ${S.brd}`,
+    color: S.dim,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "0.85rem",
+    flexShrink: 0,
+    padding: 0,
+    fontFamily: "inherit",
+  };
+
+  // Filter messages by search
+  const displayedMessages =
+    searchOpen && searchQuery.trim()
+      ? messages.filter(
+          (m) =>
+            m.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            m.from.toLowerCase().includes(searchQuery.toLowerCase()),
+        )
+      : messages;
+
+  const renderAttachment = (att: DMAttachment, key: string) => {
+    if (att.type === "image" || att.type === "gif") {
+      const src = att.dataUrl || att.url || "";
+      return (
+        <img
+          key={key}
+          src={src}
+          alt={att.name || "image"}
+          style={{
+            maxWidth: "100%",
+            maxHeight: "180px",
+            objectFit: "contain",
+            display: "block",
+            marginTop: "4px",
+          }}
+        />
+      );
+    }
+    if (att.type === "video") {
+      return (
+        // biome-ignore lint/a11y/useMediaCaption: user-sent video in DM
+        <video
+          key={key}
+          controls
+          src={att.dataUrl}
+          style={{
+            maxWidth: "100%",
+            maxHeight: "160px",
+            display: "block",
+            marginTop: "4px",
+          }}
+        />
+      );
+    }
+    if (att.type === "audio") {
+      return (
+        // biome-ignore lint/a11y/useMediaCaption: user-sent audio in DM
+        <audio
+          key={key}
+          controls
+          src={att.dataUrl}
+          style={{ width: "100%", marginTop: "4px" }}
+        />
+      );
+    }
+    if (att.type === "voice") {
+      return (
+        <div key={key} style={{ marginTop: "4px" }}>
+          <div
+            style={{
+              fontSize: "0.55rem",
+              color: S.blue,
+              marginBottom: "2px",
+              letterSpacing: "1px",
+            }}
+          >
+            🎤 VOICE MSG
+          </div>
+          {/* biome-ignore lint/a11y/useMediaCaption: user-sent voice message in DM */}
+          <audio controls src={att.dataUrl} style={{ width: "100%" }} />
+        </div>
+      );
+    }
+    if (att.type === "file") {
+      return (
+        <a
+          key={key}
+          href={att.dataUrl}
+          download={att.name || "file"}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            color: S.blue,
+            fontSize: "0.65rem",
+            marginTop: "4px",
+            textDecoration: "none",
+            fontWeight: 900,
+            letterSpacing: "1px",
+          }}
+        >
+          📁 {att.name || "FILE"}
+        </a>
+      );
+    }
+    return null;
   };
 
   return (
@@ -2085,7 +2491,7 @@ function DMPanel({
         position: "fixed",
         bottom: "70px",
         right: "20px",
-        width: "320px",
+        width: "340px",
         maxWidth: "calc(100vw - 40px)",
         background: "#0a0a0a",
         border: `2px solid ${S.gold}`,
@@ -2093,8 +2499,39 @@ function DMPanel({
         display: "flex",
         flexDirection: "column",
         fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+        maxHeight: "calc(100vh - 120px)",
       }}
     >
+      {/* Hidden file inputs */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleImageUpload}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx,.txt,.csv,.xlsx,.zip"
+        style={{ display: "none" }}
+        onChange={handleFileUpload}
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*"
+        style={{ display: "none" }}
+        onChange={handleVideoUpload}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: "none" }}
+        onChange={handleAudioUpload}
+      />
+
       {/* Header */}
       <div
         style={{
@@ -2104,6 +2541,7 @@ function DMPanel({
           padding: "10px 12px",
           borderBottom: `1px solid ${S.brd}`,
           background: "#080808",
+          flexShrink: 0,
         }}
       >
         <div
@@ -2143,6 +2581,24 @@ function DMPanel({
             {targetOnline ? "● ONLINE" : "○ OFFLINE"}
           </span>
         </div>
+        {/* Search toggle */}
+        <button
+          type="button"
+          title="SEARCH MESSAGES"
+          onClick={() => {
+            setSearchOpen((o) => !o);
+            setSearchQuery("");
+          }}
+          style={{
+            ...toolbarBtnStyle,
+            background: searchOpen ? "#1a1500" : "#111",
+            color: searchOpen ? S.gold : S.dim,
+            border: "none",
+            marginRight: "2px",
+          }}
+        >
+          🔍
+        </button>
         <button
           type="button"
           title={isFav ? "REMOVE FAVOURITE" : "ADD FAVOURITE"}
@@ -2180,20 +2636,47 @@ function DMPanel({
         </button>
       </div>
 
+      {/* Search bar */}
+      {searchOpen && (
+        <div
+          style={{
+            padding: "6px 10px",
+            borderBottom: `1px solid ${S.brd}`,
+            background: "#080808",
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="text"
+            placeholder="SEARCH MESSAGES..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              ...inputStyle,
+              margin: 0,
+              fontSize: "0.7rem",
+              padding: "6px 8px",
+            }}
+          />
+        </div>
+      )}
+
       {/* Message history */}
       <div
         ref={scrollRef}
         className="xution-scroll"
         style={{
-          maxHeight: "250px",
+          flex: 1,
           overflowY: "auto",
           padding: "10px 12px",
           display: "flex",
           flexDirection: "column",
           gap: "6px",
+          minHeight: 0,
+          maxHeight: "280px",
         }}
       >
-        {messages.length === 0 ? (
+        {displayedMessages.length === 0 ? (
           <div
             style={{
               color: S.dim,
@@ -2203,10 +2686,10 @@ function DMPanel({
               textTransform: "uppercase",
             }}
           >
-            NO MESSAGES YET
+            {searchOpen && searchQuery ? "NO RESULTS" : "NO MESSAGES YET"}
           </div>
         ) : (
-          messages.map((msg, i) => {
+          displayedMessages.map((msg, i) => {
             const isOwn = msg.from === currentUser.name;
             return (
               <div
@@ -2233,7 +2716,7 @@ function DMPanel({
                     color: isOwn ? S.gold : S.white,
                     background: isOwn ? "#1a1500" : "#111",
                     padding: "5px 8px",
-                    maxWidth: "85%",
+                    maxWidth: "90%",
                     wordBreak: "break-word",
                     textTransform: "uppercase",
                     fontWeight: 900,
@@ -2242,7 +2725,10 @@ function DMPanel({
                       : `1px solid ${S.brd}`,
                   }}
                 >
-                  {msg.text}
+                  {msg.text && <span>{msg.text}</span>}
+                  {msg.attachments?.map((att, ai) =>
+                    renderAttachment(att, `att-${i}-${ai}`),
+                  )}
                 </div>
               </div>
             );
@@ -2250,49 +2736,400 @@ function DMPanel({
         )}
       </div>
 
-      {/* Input */}
-      <div
-        style={{
-          display: "flex",
-          borderTop: `1px solid ${S.brd}`,
-          gap: 0,
-        }}
-      >
-        <input
-          type="text"
-          placeholder="TYPE MESSAGE..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSend()}
+      {/* Input area */}
+      <div style={{ borderTop: `1px solid ${S.brd}`, flexShrink: 0 }}>
+        {/* Pending attachments preview */}
+        {pendingAttachments.length > 0 && (
+          <div
+            style={{
+              padding: "6px 10px",
+              borderBottom: `1px solid ${S.brd}`,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "5px",
+            }}
+          >
+            {pendingAttachments.map((att) => (
+              <div
+                key={att._key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "3px",
+                  border: `1px solid ${S.gold}55`,
+                  background: "#0a0800",
+                  padding: "3px 6px",
+                  fontSize: "0.6rem",
+                  color: S.gold,
+                  letterSpacing: "0.5px",
+                }}
+              >
+                {att.type === "image" && att.dataUrl && (
+                  <img
+                    src={att.dataUrl}
+                    alt=""
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      objectFit: "cover",
+                    }}
+                  />
+                )}
+                {att.type === "gif" && (
+                  <img
+                    src={att.url}
+                    alt="gif"
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      objectFit: "cover",
+                    }}
+                  />
+                )}
+                {att.type === "video" && <span>🎬</span>}
+                {att.type === "audio" && <span>🎵</span>}
+                {att.type === "voice" && <span>🎤</span>}
+                {att.type === "file" && <span>📁</span>}
+                <span
+                  style={{
+                    maxWidth: "60px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {att.name || att.type.toUpperCase()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removePending(att._key)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: S.red,
+                    cursor: "pointer",
+                    padding: "0 2px",
+                    fontSize: "0.7rem",
+                    lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* GIF panel */}
+        {showGifPanel && (
+          <div
+            style={{
+              padding: "6px 10px",
+              borderBottom: `1px solid ${S.brd}`,
+              display: "flex",
+              gap: "5px",
+            }}
+          >
+            <input
+              type="text"
+              placeholder="PASTE GIF URL..."
+              value={gifUrl}
+              onChange={(e) => setGifUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAddGif()}
+              style={{
+                ...inputStyle,
+                margin: 0,
+                flex: 1,
+                fontSize: "0.65rem",
+                padding: "5px 7px",
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleAddGif}
+              style={{
+                background: S.gold,
+                color: "#000",
+                border: "none",
+                padding: "5px 10px",
+                fontWeight: 900,
+                cursor: "pointer",
+                fontSize: "0.65rem",
+                letterSpacing: "1px",
+                fontFamily: "inherit",
+                textTransform: "uppercase",
+              }}
+            >
+              ADD
+            </button>
+          </div>
+        )}
+
+        {/* Emoji picker */}
+        {showEmojiPicker && (
+          <div
+            className="xution-scroll"
+            style={{
+              padding: "6px 10px",
+              borderBottom: `1px solid ${S.brd}`,
+              maxHeight: "130px",
+              overflowY: "auto",
+              background: "#080808",
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(6, 1fr)",
+                gap: "3px",
+              }}
+            >
+              {EMOJI_LIST.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  onClick={() => handleEmojiClick(emoji)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    fontSize: "1.1rem",
+                    padding: "3px",
+                    textAlign: "center",
+                    borderRadius: "3px",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      "#222";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      "transparent";
+                  }}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recording indicator */}
+        {isRecording && (
+          <div
+            style={{
+              padding: "5px 10px",
+              background: "#1a0000",
+              borderBottom: `1px solid ${S.red}`,
+              fontSize: "0.6rem",
+              color: S.red,
+              letterSpacing: "2px",
+              fontWeight: 900,
+            }}
+          >
+            ● RECORDING...
+          </div>
+        )}
+        {recordingError && (
+          <div
+            style={{
+              padding: "4px 10px",
+              background: "#1a0000",
+              borderBottom: `1px solid ${S.red}`,
+              fontSize: "0.55rem",
+              color: S.red,
+              letterSpacing: "1px",
+            }}
+          >
+            {recordingError}
+          </div>
+        )}
+
+        {/* Attachment toolbar */}
+        <div
           style={{
-            ...inputStyle,
-            margin: 0,
-            flex: 1,
-            fontSize: "0.75rem",
-            padding: "10px",
-            border: "none",
-            borderRight: `1px solid ${S.brd}`,
-          }}
-        />
-        <button
-          type="button"
-          onClick={handleSend}
-          style={{
-            background: S.gold,
-            color: "#000",
-            border: "none",
-            padding: "10px 14px",
-            fontWeight: 900,
-            cursor: "pointer",
-            fontFamily: "'JetBrains Mono', 'Courier New', monospace",
-            fontSize: "0.7rem",
-            textTransform: "uppercase",
-            letterSpacing: "1px",
+            display: "flex",
+            gap: "4px",
+            padding: "6px 10px",
+            borderBottom: `1px solid ${S.brd}`,
+            overflowX: "auto",
+            background: "#060606",
             flexShrink: 0,
           }}
         >
-          SEND
-        </button>
+          <button
+            type="button"
+            title="IMAGE"
+            onClick={() => imageInputRef.current?.click()}
+            style={toolbarBtnStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            📷
+          </button>
+          <button
+            type="button"
+            title="FILE"
+            onClick={() => fileInputRef.current?.click()}
+            style={toolbarBtnStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            📁
+          </button>
+          <button
+            type="button"
+            title="VIDEO"
+            onClick={() => videoInputRef.current?.click()}
+            style={toolbarBtnStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            🎬
+          </button>
+          <button
+            type="button"
+            title="AUDIO"
+            onClick={() => audioInputRef.current?.click()}
+            style={toolbarBtnStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            🎵
+          </button>
+          <button
+            type="button"
+            title="GIF"
+            onClick={() => {
+              setShowGifPanel((o) => !o);
+              setShowEmojiPicker(false);
+            }}
+            style={{
+              ...toolbarBtnStyle,
+              ...(showGifPanel ? { background: "#1a1500", color: S.gold } : {}),
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              if (!showGifPanel)
+                (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            🌀
+          </button>
+          <button
+            type="button"
+            title="EMOJI"
+            onClick={() => {
+              setShowEmojiPicker((o) => !o);
+              setShowGifPanel(false);
+            }}
+            style={{
+              ...toolbarBtnStyle,
+              ...(showEmojiPicker
+                ? { background: "#1a1500", color: S.gold }
+                : {}),
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              if (!showEmojiPicker)
+                (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            😊
+          </button>
+          <button
+            type="button"
+            title="HOLD TO RECORD VOICE"
+            onMouseDown={startRecording}
+            onMouseUp={stopRecording}
+            onTouchStart={startRecording}
+            onTouchEnd={stopRecording}
+            style={{
+              ...toolbarBtnStyle,
+              ...(isRecording
+                ? {
+                    background: "#1a0000",
+                    color: S.red,
+                    border: `1px solid ${S.red}`,
+                  }
+                : {}),
+            }}
+            onMouseEnter={(e) => {
+              if (!isRecording)
+                (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              if (!isRecording)
+                (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            🎤
+          </button>
+        </div>
+
+        {/* Text input + send */}
+        <div
+          style={{
+            display: "flex",
+            gap: 0,
+          }}
+        >
+          <input
+            type="text"
+            placeholder="TYPE MESSAGE..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            style={{
+              ...inputStyle,
+              margin: 0,
+              flex: 1,
+              fontSize: "0.75rem",
+              padding: "10px",
+              border: "none",
+              borderRight: `1px solid ${S.brd}`,
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleSend}
+            style={{
+              background: S.gold,
+              color: "#000",
+              border: "none",
+              padding: "10px 14px",
+              fontWeight: 900,
+              cursor: "pointer",
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontSize: "0.7rem",
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              flexShrink: 0,
+            }}
+          >
+            SEND
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2305,11 +3142,8 @@ function MemberRow({
   db,
   currentUser,
   isFav,
-  lockdown,
   onDM,
   onFavToggle,
-  onChangeLvl,
-  onDel,
 }: {
   memberName: string;
   db: UserDB;
@@ -2321,9 +3155,7 @@ function MemberRow({
   onChangeLvl: (name: string, change: number) => void;
   onDel: (name: string) => void;
 }) {
-  const isImmune = IMMUNE.includes(memberName);
   const isSelf = memberName === currentUser.name;
-  const canAdmin = currentUser.lvl === 6 && !isImmune;
   const [unread, setUnread] = useState(() =>
     isSelf ? 0 : getDMUnreadCount(currentUser.name, memberName),
   );
@@ -2452,7 +3284,7 @@ function MemberRow({
           </span>
         )}
 
-        {isImmune && (
+        {IMMUNE.includes(memberName) && (
           <span
             style={{
               color: S.blue,
@@ -2468,74 +3300,19 @@ function MemberRow({
       </div>
 
       {/* Action buttons */}
-      {(!isSelf || canAdmin) && (
+      {!isSelf && (
         <div style={{ display: "flex", gap: "5px", width: "100%" }}>
-          {!isSelf && (
-            <button
-              type="button"
-              style={{
-                ...btnSmall,
-                background: S.blue,
-                color: "#000",
-              }}
-              onClick={() => onDM(memberName)}
-            >
-              DM
-            </button>
-          )}
-          {canAdmin && (
-            <>
-              <button
-                type="button"
-                disabled={lockdown}
-                title={lockdown ? "LOCKDOWN ACTIVE" : undefined}
-                style={{
-                  ...btnSmall,
-                  background: lockdown ? "#111" : "#1a3a1a",
-                  color: lockdown ? S.dim : S.green,
-                  border: `1px solid ${lockdown ? S.dim : S.green}44`,
-                  cursor: lockdown ? "not-allowed" : "pointer",
-                  opacity: lockdown ? 0.5 : 1,
-                }}
-                onClick={() => !lockdown && onChangeLvl(memberName, 1)}
-              >
-                LVL +
-              </button>
-              <button
-                type="button"
-                disabled={lockdown}
-                title={lockdown ? "LOCKDOWN ACTIVE" : undefined}
-                style={{
-                  ...btnSmall,
-                  background: lockdown ? "#111" : "#1a1a00",
-                  color: lockdown ? S.dim : S.gold,
-                  border: `1px solid ${lockdown ? S.dim : S.gold}44`,
-                  cursor: lockdown ? "not-allowed" : "pointer",
-                  opacity: lockdown ? 0.5 : 1,
-                }}
-                onClick={() => !lockdown && onChangeLvl(memberName, -1)}
-              >
-                LVL −
-              </button>
-              {!isSelf && (
-                <button
-                  type="button"
-                  disabled={lockdown}
-                  title={lockdown ? "LOCKDOWN ACTIVE" : undefined}
-                  style={{
-                    ...btnSmall,
-                    background: lockdown ? "#111" : S.red,
-                    color: lockdown ? S.dim : "#fff",
-                    cursor: lockdown ? "not-allowed" : "pointer",
-                    opacity: lockdown ? 0.5 : 1,
-                  }}
-                  onClick={() => !lockdown && onDel(memberName)}
-                >
-                  DELETE
-                </button>
-              )}
-            </>
-          )}
+          <button
+            type="button"
+            style={{
+              ...btnSmall,
+              background: S.blue,
+              color: "#000",
+            }}
+            onClick={() => onDM(memberName)}
+          >
+            DM
+          </button>
         </div>
       )}
     </div>
@@ -2562,6 +3339,7 @@ function OfficeLocations({
   onSelect?: (office: OfficeLocation | null) => void;
   selectedId?: string | null;
 }) {
+  const { actor } = useActor();
   const isSovereign = currentUser.lvl === 6;
   const [locations, setLocations] =
     useState<OfficeLocation[]>(getOfficeLocations);
@@ -2599,6 +3377,7 @@ function OfficeLocations({
     setAddFloor("");
     setAddDesc("");
     setAddOpen(false);
+    actor?.setOfficeLocations(JSON.stringify(updated)).catch(() => {});
   };
 
   const startEdit = (office: OfficeLocation) => {
@@ -2619,6 +3398,7 @@ function OfficeLocations({
     setOfficeLocations(updated);
     setLocations(updated);
     setEditingId(null);
+    actor?.setOfficeLocations(JSON.stringify(updated)).catch(() => {});
   };
 
   const handleDelete = (officeId: string) => {
@@ -2634,6 +3414,7 @@ function OfficeLocations({
       );
       setFavs(newFavs);
     }
+    actor?.setOfficeLocations(JSON.stringify(updated)).catch(() => {});
   };
 
   const favourites = locations.filter((o) => favs.includes(o.id));
@@ -3037,10 +3818,8 @@ function MemberList({
     addActivity(`MODIFIED ${name} TO L${newLvl}`);
     refresh();
     onActivity();
-    // Background sync to backend (fire-and-forget)
-    if (actor) {
-      actor.updateUserLevel(name, BigInt(newLvl)).catch(() => {});
-    }
+    // Sync to backend
+    actor?.updateUserLevel(name, BigInt(newLvl)).catch(() => {});
   };
 
   const delMem = (name: string) => {
@@ -3527,6 +4306,7 @@ function FacilityMenu({
   facility: string;
   onActivity: () => void;
 }) {
+  const { actor } = useActor();
   const isSovereign = currentUser.lvl === 6;
   const [items, setItemsState] = useState<MenuItem[]>(() =>
     getFacilityMenu(facility),
@@ -3577,19 +4357,38 @@ function FacilityMenu({
     if (!isSovereign) {
       setFunds(currentUser.name, newAmount);
       setFundsState(newAmount);
+      // Sync funds to canister
+      actor?.setMemberFunds(currentUser.name, newAmount).catch(() => {});
     }
     // Decrement stock if tracked
     if (item.stock !== undefined) {
       decrementMenuItemStock(item.id);
+      // Sync new stock to canister
+      const newStock = Math.max(0, item.stock - 1);
+      actor
+        ?.updateMenuItemStock(item.id, localStockToCanister(newStock))
+        .catch(() => {});
     }
+    const ts = new Date().toISOString();
     addTransaction({
       member: currentUser.name,
       prevAmount,
       newAmount,
       changedBy: currentUser.name,
-      ts: new Date().toISOString(),
+      ts,
       description: `PURCHASE: ${item.name} @ ${facility}`,
     });
+    // Sync transaction to canister
+    actor
+      ?.addTransaction(
+        currentUser.name,
+        prevAmount,
+        newAmount,
+        currentUser.name,
+        ts,
+        `PURCHASE: ${item.name} @ ${facility}`,
+      )
+      .catch(() => {});
     addActivity(
       `PURCHASE: ${item.name} FROM ${facility} BY ${currentUser.name}`,
     );
@@ -3635,6 +4434,17 @@ function FacilityMenu({
     addActivity(`MENU ITEM ADDED: ${name} TO ${facility}`);
     onActivity();
     refreshItems();
+    // Sync to canister
+    actor
+      ?.addMenuItem(
+        facility,
+        name,
+        newItem.price,
+        newItem.description,
+        currentUser.name,
+        localStockToCanister(parsedStock),
+      )
+      .catch(() => {});
   };
 
   const handleSetStock = (item: MenuItem) => {
@@ -3645,6 +4455,10 @@ function FacilityMenu({
     updateMenuItemStock(item.id, val);
     setStockInputs((prev) => ({ ...prev, [item.id]: "" }));
     refreshItems();
+    // Sync to canister
+    actor
+      ?.updateMenuItemStock(item.id, localStockToCanister(val))
+      .catch(() => {});
   };
 
   const handleDeleteItem = (itemId: string) => {
@@ -3653,6 +4467,8 @@ function FacilityMenu({
     addActivity(`MENU ITEM DELETED FROM ${facility}`);
     onActivity();
     refreshItems();
+    // Sync to canister
+    actor?.deleteMenuItem(itemId).catch(() => {});
   };
 
   return (
@@ -3835,8 +4651,15 @@ function FacilityMenu({
                             }}
                             onClick={() => {
                               if (item.stock !== undefined) {
-                                updateMenuItemStock(item.id, item.stock - 1);
+                                const newStk = Math.max(0, item.stock - 1);
+                                updateMenuItemStock(item.id, newStk);
                                 refreshItems();
+                                actor
+                                  ?.updateMenuItemStock(
+                                    item.id,
+                                    localStockToCanister(newStk),
+                                  )
+                                  .catch(() => {});
                               }
                             }}
                           >
@@ -3879,8 +4702,15 @@ function FacilityMenu({
                             }}
                             onClick={() => {
                               const cur = item.stock ?? 0;
-                              updateMenuItemStock(item.id, cur + 1);
+                              const newStk = cur + 1;
+                              updateMenuItemStock(item.id, newStk);
                               refreshItems();
+                              actor
+                                ?.updateMenuItemStock(
+                                  item.id,
+                                  localStockToCanister(newStk),
+                                )
+                                .catch(() => {});
                             }}
                           >
                             +
@@ -4143,14 +4973,13 @@ function SectorWorkspace({
   activeOffice: OfficeLocation | null;
   lockdown: boolean;
 }) {
+  const { actor } = useActor();
   const [logs, setLogs] = useState<SectorLog[]>(getSectorLogs);
   const [adminPosts, setAdminPostsState] = useState<AdminPost[]>(getAdminPosts);
-  const [ebMsg, setEbMsg] = useState("");
   // Selected office within the Offices sector (for browsing the list)
   const [selectedOffice, setSelectedOffice] = useState<OfficeLocation | null>(
     null,
   );
-  const [ebActive, setEbActive] = useState(!!getBroadcastMsg());
 
   // Log form state
   const [logTitle, setLogTitle] = useState("");
@@ -4172,47 +5001,45 @@ function SectorWorkspace({
 
   const submitLog = () => {
     if (!logTitle || !logBody) return;
+    const id = Date.now().toString();
+    const date = new Date().toLocaleString();
     const allLogs = getSectorLogs();
     allLogs.push({
-      id: Date.now().toString(),
+      id,
       sector: activeSectorKey,
       title: logTitle,
       body: logBody,
       author: currentUser.name,
       level: logLevel,
-      date: new Date().toLocaleString(),
+      date,
     });
     setSectorLogs(allLogs);
     setLogTitle("");
     setLogBody("");
     refreshLogs();
-  };
-
-  const toggleEB = () => {
-    if (!ebMsg) return;
-    setBroadcastMsg(ebMsg);
-    setEbActive(true);
-    addActivity("EMERGENCY BROADCAST ACTIVATED");
-    onActivity();
-  };
-
-  const deactivateEB = () => {
-    setBroadcastMsg("");
-    setEbActive(false);
-    setEbMsg("");
-    addActivity("EMERGENCY BROADCAST DEACTIVATED");
-    onActivity();
+    // Sync to canister
+    actor
+      ?.addSectorLog(
+        activeSectorKey,
+        logTitle,
+        logBody,
+        currentUser.name,
+        BigInt(logLevel),
+        date,
+      )
+      .catch(() => {});
   };
 
   const makePost = () => {
     if (!postTxt) return;
+    const date = new Date().toLocaleString();
     const posts = getAdminPosts();
     posts.push({
       id: Date.now().toString(),
       author: currentUser.name,
       content: postTxt,
       minLvl: postMinLvl,
-      date: new Date().toLocaleString(),
+      date,
       sector: activeSectorKey,
     });
     setAdminPosts(posts);
@@ -4220,6 +5047,16 @@ function SectorWorkspace({
     addActivity("ADMIN POST TRANSMITTED");
     refreshPosts();
     onActivity();
+    // Sync to canister
+    actor
+      ?.addAdminPost(
+        currentUser.name,
+        postTxt,
+        BigInt(postMinLvl),
+        date,
+        activeSectorKey,
+      )
+      .catch(() => {});
   };
 
   const deletePost = (postId: string) => {
@@ -4228,6 +5065,7 @@ function SectorWorkspace({
     addActivity("ADMIN POST DELETED");
     refreshPosts();
     onActivity();
+    actor?.deleteAdminPost(postId).catch(() => {});
   };
 
   const saveEditPost = (postId: string, newContent: string) => {
@@ -4237,6 +5075,7 @@ function SectorWorkspace({
     setAdminPosts(posts);
     refreshPosts();
     onActivity();
+    actor?.updateAdminPost(postId, newContent).catch(() => {});
   };
 
   const deleteLog = (logId: string) => {
@@ -4245,6 +5084,7 @@ function SectorWorkspace({
     addActivity("SECTOR LOG DELETED");
     refreshLogs();
     onActivity();
+    actor?.deleteSectorLog(logId).catch(() => {});
   };
 
   const saveEditLog = (logId: string, newBody: string) => {
@@ -4254,6 +5094,7 @@ function SectorWorkspace({
     setSectorLogs(logs);
     refreshLogs();
     onActivity();
+    actor?.updateSectorLog(logId, newBody).catch(() => {});
   };
 
   // Reset selected office when sector changes
@@ -4261,20 +5102,6 @@ function SectorWorkspace({
   useEffect(() => {
     setSelectedOffice(null);
   }, [selectedSector]);
-
-  // Update EB banner in parent
-  useEffect(() => {
-    const stored = getBroadcastMsg();
-    if (stored) setEbActive(true);
-  }, []);
-
-  // Propagate EB state up to App level
-  useEffect(() => {
-    const event = new CustomEvent("xution-eb", {
-      detail: { active: ebActive, msg: getBroadcastMsg() },
-    });
-    window.dispatchEvent(event);
-  }, [ebActive]);
 
   // Use the global active office (if set) as a namespace prefix for facility data.
   // Within the Offices sector, a locally-selected office overrides for browsing.
@@ -4604,55 +5431,6 @@ function SectorWorkspace({
         </div>
       )}
 
-      {/* L6 Emergency Broadcast */}
-      {currentUser.lvl === 6 && (
-        <div
-          style={{
-            borderTop: `1px solid ${S.brd}`,
-            paddingTop: "15px",
-            marginBottom: "20px",
-          }}
-        >
-          <p style={{ color: S.red, fontSize: "0.7rem", marginBottom: "10px" }}>
-            EMERGENCY BROADCAST TOOL
-          </p>
-          <input
-            type="text"
-            placeholder="BROADCAST MESSAGE"
-            value={ebMsg}
-            onChange={(e) => setEbMsg(e.target.value)}
-            style={{ ...inputStyle, borderColor: S.red }}
-          />
-          <button
-            type="button"
-            style={{
-              ...btnPrimary,
-              background: S.red,
-              color: "#fff",
-              marginTop: "8px",
-            }}
-            onClick={toggleEB}
-          >
-            ACTIVATE BROADCAST
-          </button>
-          {ebActive && (
-            <button
-              type="button"
-              style={{
-                ...btnPrimary,
-                background: "#222",
-                color: S.red,
-                border: `1px solid ${S.red}`,
-                marginTop: "8px",
-              }}
-              onClick={deactivateEB}
-            >
-              DEACTIVATE BROADCAST
-            </button>
-          )}
-        </div>
-      )}
-
       {/* L4+ Admin Post */}
       {currentUser.lvl >= 4 && (
         <div
@@ -4876,6 +5654,7 @@ function EditableSection({
   currentUser: CurrentUser | null;
   renderContent: (text: string) => React.ReactNode;
 }) {
+  const { actor } = useActor();
   const isSovereign = currentUser?.lvl === 6;
   const [content, setContent] = useState(() =>
     getAboutContent(storageKey, defaultContent),
@@ -4892,6 +5671,7 @@ function EditableSection({
     setAboutContent(storageKey, draft);
     setContent(draft);
     setEditing(false);
+    actor?.setContent(storageKey, draft).catch(() => {});
   };
 
   const cancelEdit = () => {
@@ -4987,10 +5767,885 @@ function EditableSection({
   );
 }
 
+// ─── AdminSettingsPanel ───────────────────────────────────────────────────────
+
+function AdminSettingsPanel({
+  open,
+  onClose,
+  currentUser,
+  lockdown,
+  onLockdownToggle,
+  onUpdate,
+  ebMsg,
+  ebActive,
+  onEbMsgChange,
+  onActivateEB,
+  onDeactivateEB,
+}: {
+  open: boolean;
+  onClose: () => void;
+  currentUser: CurrentUser;
+  lockdown: boolean;
+  onLockdownToggle: () => void;
+  onUpdate: () => void;
+  ebMsg: string;
+  ebActive: boolean;
+  onEbMsgChange: (msg: string) => void;
+  onActivateEB: (msg: string) => void;
+  onDeactivateEB: () => void;
+}) {
+  const { actor } = useActor();
+  const [db, setDbState] = useState<UserDB>(getDB);
+
+  const refresh = () => setDbState(getDB());
+
+  // Escape key closes panel
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && open) onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [open, onClose]);
+
+  // Lock scroll when panel is open
+  useEffect(() => {
+    document.body.style.overflow = open ? "hidden" : "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
+  const changeLvl = (name: string, change: number) => {
+    if (lockdown || IMMUNE.includes(name)) return;
+    const d = getDB();
+    const newLvl = d[name].lvl + change;
+    if (newLvl < 1 || newLvl > 6) return;
+    d[name].lvl = newLvl;
+    setDB(d);
+    addActivity(`MODIFIED ${name} TO L${newLvl}`);
+    refresh();
+    onUpdate();
+    actor?.updateUserLevel(name, BigInt(newLvl)).catch(() => {});
+  };
+
+  const delMem = (name: string) => {
+    if (lockdown || name === currentUser.name || IMMUNE.includes(name)) return;
+    if (window.confirm(`TERMINATE IDENTITY: ${name}?`)) {
+      const d = getDB();
+      delete d[name];
+      setDB(d);
+      addActivity(`DELETED IDENTITY: ${name}`);
+      refresh();
+      onUpdate();
+      actor?.deleteUser(name).catch(() => {});
+    }
+  };
+
+  const memberNames = Object.keys(db);
+
+  if (!open) return null;
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        data-ocid="admin_panel.modal"
+        role="button"
+        tabIndex={-1}
+        onClick={onClose}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" || e.key === "Enter") onClose();
+        }}
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.7)",
+          zIndex: 9998,
+        }}
+      />
+
+      {/* Slide-in Panel */}
+      <div
+        className="xution-scroll"
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "min(480px, 100vw)",
+          background: "#080808",
+          borderLeft: `2px solid ${S.gold}`,
+          zIndex: 9999,
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+          fontWeight: 900,
+          textTransform: "uppercase",
+          boxShadow: `-8px 0 40px rgba(0,0,0,0.8), -2px 0 20px ${S.gold}22`,
+        }}
+      >
+        {/* Panel header */}
+        <div
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "16px 20px",
+            background: "#040404",
+            borderBottom: `1px solid ${S.gold}55`,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <span style={{ fontSize: "1.1rem", color: S.gold }}>⚙</span>
+            <span
+              style={{
+                fontSize: "0.8rem",
+                letterSpacing: "4px",
+                color: S.gold,
+                fontWeight: 900,
+              }}
+            >
+              ADMIN SETTINGS
+            </span>
+          </div>
+          <button
+            type="button"
+            data-ocid="admin_panel.close_button"
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: `1px solid ${S.brd}`,
+              color: S.dim,
+              cursor: "pointer",
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontWeight: 900,
+              fontSize: "0.9rem",
+              padding: "4px 10px",
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Panel body */}
+        <div style={{ padding: "20px", flex: 1 }}>
+          {/* ── Fund Management ── */}
+          <FundManagement onUpdate={onUpdate} currentUser={currentUser} />
+
+          {/* ── Global Transaction Ledger ── */}
+          <GlobalTransactionHistory />
+
+          {/* ── Emergency Broadcast ── */}
+          <div style={{ marginBottom: "30px" }}>
+            <div
+              style={{
+                borderLeft: `5px solid ${ebActive ? S.red : S.dim}`,
+                paddingLeft: "15px",
+                marginBottom: "12px",
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "0.85rem",
+                  letterSpacing: "3px",
+                  color: ebActive ? S.red : S.dim,
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                  fontWeight: 900,
+                  textTransform: "uppercase",
+                }}
+              >
+                EMERGENCY BROADCAST
+              </h3>
+              <div
+                style={{
+                  fontSize: "0.55rem",
+                  color: S.dim,
+                  letterSpacing: "2px",
+                  marginTop: "4px",
+                }}
+              >
+                {ebActive
+                  ? "ACTIVE — BROADCAST TRANSMITTING"
+                  : "INACTIVE — STANDBY"}
+              </div>
+            </div>
+            <input
+              type="text"
+              placeholder="BROADCAST MESSAGE"
+              value={ebMsg}
+              onChange={(e) => onEbMsgChange(e.target.value)}
+              style={{ ...inputStyle, borderColor: ebActive ? S.red : "#444" }}
+              data-ocid="admin_panel.eb.input"
+            />
+            <button
+              type="button"
+              data-ocid="admin_panel.eb.submit_button"
+              style={{
+                ...btnPrimary,
+                background: S.red,
+                color: "#fff",
+                marginTop: "8px",
+              }}
+              onClick={() => onActivateEB(ebMsg)}
+            >
+              ACTIVATE BROADCAST
+            </button>
+            {ebActive && (
+              <button
+                type="button"
+                data-ocid="admin_panel.eb.cancel_button"
+                style={{
+                  ...btnPrimary,
+                  background: "#222",
+                  color: S.red,
+                  border: `1px solid ${S.red}`,
+                  marginTop: "8px",
+                }}
+                onClick={onDeactivateEB}
+              >
+                DEACTIVATE BROADCAST
+              </button>
+            )}
+          </div>
+
+          {/* ── Emergency Lockdown ── */}
+          <div style={{ marginBottom: "30px" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                borderLeft: `5px solid ${lockdown ? "#ff6600" : S.dim}`,
+                paddingLeft: "15px",
+                marginBottom: "10px",
+              }}
+            >
+              <div>
+                <h3
+                  style={{
+                    margin: 0,
+                    fontSize: "0.85rem",
+                    letterSpacing: "3px",
+                    color: lockdown ? "#ff6600" : S.dim,
+                    fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                    fontWeight: 900,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  EMERGENCY LOCKDOWN
+                </h3>
+                <div
+                  style={{
+                    fontSize: "0.55rem",
+                    color: S.dim,
+                    letterSpacing: "2px",
+                    marginTop: "4px",
+                  }}
+                >
+                  {lockdown
+                    ? "ACTIVE — PROMOTIONS, DEMOTIONS & DELETIONS BLOCKED. ALL POSTS REDACTED."
+                    : "INACTIVE — ALL SYSTEMS NORMAL"}
+                </div>
+              </div>
+              <button
+                type="button"
+                data-ocid="lockdown.toggle_button"
+                onClick={onLockdownToggle}
+                style={{
+                  ...btnSmall,
+                  background: lockdown ? "#222" : "#3a0000",
+                  color: lockdown ? "#ff6600" : S.red,
+                  border: `1px solid ${lockdown ? "#ff6600" : S.red}`,
+                  padding: "8px 16px",
+                  flex: "none",
+                  fontSize: "0.7rem",
+                  marginLeft: "15px",
+                }}
+              >
+                {lockdown ? "🔓 LIFT LOCKDOWN" : "🔒 INITIATE LOCKDOWN"}
+              </button>
+            </div>
+          </div>
+
+          {/* ── Sovereign Database / Member Management ── */}
+          <div style={{ marginBottom: "20px" }}>
+            <div
+              style={{
+                borderLeft: `5px solid ${S.red}`,
+                paddingLeft: "15px",
+                marginBottom: "15px",
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "0.85rem",
+                  letterSpacing: "3px",
+                  color: S.red,
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                  fontWeight: 900,
+                  textTransform: "uppercase",
+                }}
+              >
+                SOVEREIGN DATABASE
+              </h3>
+            </div>
+            <div
+              style={{
+                border: `1px solid ${S.red}44`,
+                background: "#0a0000",
+                padding: "0",
+              }}
+            >
+              {memberNames.length === 0 ? (
+                <div
+                  style={{
+                    padding: "15px",
+                    color: S.dim,
+                    fontSize: "0.7rem",
+                    textAlign: "center",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  NO MEMBERS REGISTERED
+                </div>
+              ) : (
+                memberNames.map((memberName) => {
+                  const isImmune = IMMUNE.includes(memberName);
+                  const isSelf = memberName === currentUser.name;
+                  const canAdmin = !isImmune;
+                  return (
+                    <div
+                      key={memberName}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        padding: "12px 15px",
+                        borderBottom: "1px solid #300",
+                        gap: "8px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "0.8rem",
+                            color: isSelf ? S.gold : S.white,
+                            fontWeight: 900,
+                            letterSpacing: "1px",
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          {memberName} [L{db[memberName]?.lvl ?? "?"}]
+                          {isSelf && (
+                            <span
+                              style={{
+                                color: S.green,
+                                fontSize: "0.6rem",
+                                marginLeft: "6px",
+                              }}
+                            >
+                              ◈ YOU
+                            </span>
+                          )}
+                        </span>
+                        {isImmune && (
+                          <span
+                            style={{
+                              color: S.blue,
+                              fontSize: "0.6rem",
+                              border: `1px solid ${S.blue}`,
+                              padding: "2px 5px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            IMMUTABLE
+                          </span>
+                        )}
+                      </div>
+                      {canAdmin && (
+                        <div
+                          style={{ display: "flex", gap: "5px", width: "100%" }}
+                        >
+                          <button
+                            type="button"
+                            disabled={lockdown}
+                            style={{
+                              ...btnSmall,
+                              background: lockdown ? "#111" : "#1a3a1a",
+                              color: lockdown ? S.dim : S.green,
+                              border: `1px solid ${lockdown ? S.dim : S.green}44`,
+                              cursor: lockdown ? "not-allowed" : "pointer",
+                              opacity: lockdown ? 0.5 : 1,
+                            }}
+                            onClick={() =>
+                              !lockdown && changeLvl(memberName, 1)
+                            }
+                          >
+                            LVL +
+                          </button>
+                          <button
+                            type="button"
+                            disabled={lockdown}
+                            style={{
+                              ...btnSmall,
+                              background: lockdown ? "#111" : "#1a1a00",
+                              color: lockdown ? S.dim : S.gold,
+                              border: `1px solid ${lockdown ? S.dim : S.gold}44`,
+                              cursor: lockdown ? "not-allowed" : "pointer",
+                              opacity: lockdown ? 0.5 : 1,
+                            }}
+                            onClick={() =>
+                              !lockdown && changeLvl(memberName, -1)
+                            }
+                          >
+                            LVL −
+                          </button>
+                          {!isSelf && (
+                            <button
+                              type="button"
+                              disabled={lockdown}
+                              style={{
+                                ...btnSmall,
+                                background: lockdown ? "#111" : S.red,
+                                color: lockdown ? S.dim : "#fff",
+                                cursor: lockdown ? "not-allowed" : "pointer",
+                                opacity: lockdown ? 0.5 : 1,
+                              }}
+                              onClick={() => !lockdown && delMem(memberName)}
+                            >
+                              DELETE
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── DMInboxOverlay ───────────────────────────────────────────────────────────
+
+function DMInboxOverlay({
+  currentUser,
+  onClose,
+  onOpenDM,
+}: {
+  currentUser: CurrentUser;
+  onClose: () => void;
+  onOpenDM: (name: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [allMembers, setAllMembers] = useState<string[]>(() =>
+    Object.keys(getDB()).filter((n) => n !== currentUser.name),
+  );
+  const [tick, setTick] = useState(0);
+
+  // Refresh member list + unread counts every 3s
+  useEffect(() => {
+    const id = setInterval(() => {
+      setAllMembers(Object.keys(getDB()).filter((n) => n !== currentUser.name));
+      setTick((t) => t + 1);
+    }, 3000);
+    return () => clearInterval(id);
+  }, [currentUser.name]);
+
+  // Build conversation list: members you have DMs with (or all if none)
+  const conversations = allMembers.map((name) => {
+    const msgs = getDMs(currentUser.name, name);
+    const lastMsg = msgs[msgs.length - 1] ?? null;
+    const unread = getDMUnreadCount(currentUser.name, name);
+    const isFav = getFavourites(currentUser.name).includes(name);
+    const online = getPresence(name);
+    return { name, lastMsg, unread, isFav, online };
+  });
+
+  // Sort: favourites first, then by last message time desc
+  const sorted = conversations.sort((a, b) => {
+    if (a.isFav && !b.isFav) return -1;
+    if (!a.isFav && b.isFav) return 1;
+    const aTs = a.lastMsg ? new Date(a.lastMsg.ts).getTime() : 0;
+    const bTs = b.lastMsg ? new Date(b.lastMsg.ts).getTime() : 0;
+    return bTs - aTs;
+  });
+
+  const filtered = search.trim()
+    ? sorted.filter((c) =>
+        c.name.toLowerCase().includes(search.trim().toLowerCase()),
+      )
+    : sorted;
+
+  const totalUnread = sorted.reduce((s, c) => s + c.unread, 0);
+
+  // suppress unused tick warning
+  void tick;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9800,
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "flex-end",
+        padding: "0 20px 120px 0",
+        pointerEvents: "none",
+      }}
+    >
+      {/* Backdrop */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.6)",
+          pointerEvents: "auto",
+        }}
+        onClick={onClose}
+        onKeyDown={(e) => e.key === "Escape" && onClose()}
+        role="button"
+        tabIndex={-1}
+        aria-label="Close DM inbox"
+      />
+
+      {/* Panel */}
+      <div
+        style={{
+          position: "relative",
+          width: "340px",
+          maxWidth: "calc(100vw - 40px)",
+          maxHeight: "70vh",
+          background: "#0a0a0a",
+          border: `2px solid ${S.blue}`,
+          display: "flex",
+          flexDirection: "column",
+          fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+          boxShadow: `0 0 30px ${S.blue}33`,
+          pointerEvents: "auto",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "10px 14px",
+            borderBottom: `1px solid ${S.brd}`,
+            background: "#080808",
+            flexShrink: 0,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span
+              style={{
+                color: S.blue,
+                fontSize: "0.8rem",
+                fontWeight: 900,
+                letterSpacing: "3px",
+                textTransform: "uppercase",
+              }}
+            >
+              💬 MESSAGES
+            </span>
+            {totalUnread > 0 && (
+              <span
+                style={{
+                  background: S.red,
+                  color: "#fff",
+                  fontSize: "0.55rem",
+                  fontWeight: 900,
+                  borderRadius: "10px",
+                  padding: "2px 6px",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                {totalUnread} NEW
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            data-ocid="dm_inbox.close_button"
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: S.dim,
+              cursor: "pointer",
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontWeight: 900,
+              fontSize: "0.85rem",
+              padding: "2px 6px",
+              textTransform: "uppercase",
+            }}
+          >
+            [X]
+          </button>
+        </div>
+
+        {/* Search */}
+        <div
+          style={{
+            padding: "8px 14px",
+            borderBottom: `1px solid ${S.brd}`,
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="text"
+            placeholder="SEARCH MEMBERS..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-ocid="dm_inbox.search_input"
+            style={{
+              ...inputStyle,
+              margin: 0,
+              fontSize: "0.75rem",
+              padding: "8px 10px",
+            }}
+          />
+        </div>
+
+        {/* Conversation list */}
+        <div
+          className="xution-scroll"
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            minHeight: 0,
+          }}
+        >
+          {filtered.length === 0 ? (
+            <div
+              style={{
+                padding: "20px",
+                textAlign: "center",
+                color: S.dim,
+                fontSize: "0.65rem",
+                textTransform: "uppercase",
+                letterSpacing: "2px",
+              }}
+            >
+              {search ? "NO RESULTS" : "NO MEMBERS YET"}
+            </div>
+          ) : (
+            filtered.map((conv) => {
+              const db = getDB();
+              const lvl = db[conv.name]?.lvl ?? "?";
+              return (
+                <button
+                  key={conv.name}
+                  type="button"
+                  data-ocid="dm_inbox.item"
+                  onClick={() => {
+                    onOpenDM(conv.name);
+                    onClose();
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    width: "100%",
+                    padding: "12px 14px",
+                    borderBottom: `1px solid ${S.brd}`,
+                    background: conv.isFav ? "#0a0800" : "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      conv.isFav ? "#151000" : "#111";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      conv.isFav ? "#0a0800" : "transparent";
+                  }}
+                >
+                  {/* Avatar placeholder */}
+                  <div
+                    style={{
+                      width: "34px",
+                      height: "34px",
+                      border: `1px solid ${conv.online ? S.green : S.brd}`,
+                      background: "#111",
+                      flexShrink: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "0.7rem",
+                      color: S.dim,
+                      position: "relative",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {(() => {
+                      const av = getAvatar(conv.name);
+                      return av ? (
+                        <img
+                          src={av}
+                          alt=""
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "cover",
+                          }}
+                        />
+                      ) : (
+                        <span>{conv.name[0]}</span>
+                      );
+                    })()}
+                    {/* Online dot */}
+                    <span
+                      style={{
+                        position: "absolute",
+                        bottom: "1px",
+                        right: "1px",
+                        width: "7px",
+                        height: "7px",
+                        borderRadius: "50%",
+                        background: conv.online ? S.green : "#333",
+                        border: "1px solid #0a0a0a",
+                      }}
+                    />
+                  </div>
+
+                  {/* Info */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "0.75rem",
+                          color: S.white,
+                          fontWeight: 900,
+                          letterSpacing: "1px",
+                          textTransform: "uppercase",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          maxWidth: "150px",
+                        }}
+                      >
+                        {conv.isFav ? "★ " : ""}
+                        {conv.name}
+                      </span>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "0.5rem",
+                            color: S.dim,
+                            letterSpacing: "1px",
+                          }}
+                        >
+                          L{lvl}
+                        </span>
+                        {conv.unread > 0 && (
+                          <span
+                            style={{
+                              background: S.red,
+                              color: "#fff",
+                              fontSize: "0.5rem",
+                              fontWeight: 900,
+                              borderRadius: "8px",
+                              padding: "1px 5px",
+                            }}
+                          >
+                            {conv.unread}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div
+                      style={{
+                        fontSize: "0.6rem",
+                        color: S.dim,
+                        letterSpacing: "0.5px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        marginTop: "2px",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {(() => {
+                        const msg = conv.lastMsg;
+                        if (!msg) return "NO MESSAGES YET";
+                        const prefix =
+                          msg.from === currentUser.name ? "YOU" : msg.from;
+                        if (msg.attachments?.length) {
+                          const a = msg.attachments[0];
+                          const label =
+                            a.type === "image"
+                              ? "📷 IMAGE"
+                              : a.type === "video"
+                                ? "🎬 VIDEO"
+                                : a.type === "audio"
+                                  ? "🎵 AUDIO"
+                                  : a.type === "file"
+                                    ? "📁 FILE"
+                                    : a.type === "gif"
+                                      ? "🌀 GIF"
+                                      : "🎤 VOICE";
+                          return `${prefix}: ${msg.text ? `${msg.text} ` : ""}${label}`;
+                        }
+                        return `${prefix}: ${msg.text}`;
+                      })()}
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
   const [activities, setActivities] =
     useState<ActivityEntry[]>(get24hActivities);
@@ -4999,6 +6654,7 @@ export default function App() {
   const [lockdown, setLockdownState] = useState<boolean>(getLockdown);
   const [selectedSector, setSelectedSector] = useState("SECTOR DATA");
   const [dmTarget, setDmTarget] = useState<string | null>(null);
+  const [dmInboxOpen, setDmInboxOpen] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
   // Global active office — determines which office's data is shown for all facilities
@@ -5006,6 +6662,8 @@ export default function App() {
   const [officePickerOpen, setOfficePickerOpen] = useState(false);
   // Snapshot of all menu items — polled so sold-out lists in tiles stay fresh
   const [menuSnapshot, setMenuSnapshot] = useState<MenuItem[]>(getMenuItems);
+  // Canister sync counter — bump to force re-render of components reading localStorage
+  const [_syncTick, setSyncTick] = useState(0);
 
   // Actor for reconnect polling
   const { actor } = useActor();
@@ -5024,7 +6682,191 @@ export default function App() {
     };
   }, []);
 
-  // Poll lockdown state every 3s so all users see changes made by L6 on any device
+  // ─── Canister sync: poll all shared data and write to localStorage ───────────
+  // This makes all components that read from localStorage get fresh canister data.
+
+  // Poll lockdown + broadcast from canister every 3s
+  useEffect(() => {
+    if (!actor) return;
+    const id = setInterval(async () => {
+      try {
+        const [ld, bc] = await Promise.all([
+          actor.getLockdown(),
+          actor.getBroadcast(),
+        ]);
+        setLockdownState(ld);
+        localStorage.setItem("x_lockdown_v1", ld ? "1" : "0");
+        if (bc !== getBroadcastMsg()) {
+          setBroadcastMsg(bc);
+          setEbActive(!!bc);
+          setEbMsg(bc);
+        }
+      } catch {
+        // Fallback: use localStorage
+        setLockdownState(getLockdown());
+      }
+    }, 3000);
+    return () => clearInterval(id);
+  }, [actor]);
+
+  // Poll sector logs + admin posts + menu items from canister every 4s
+  useEffect(() => {
+    if (!actor) return;
+    const id = setInterval(async () => {
+      try {
+        const [allLogs, allPosts, allItems] = await Promise.all([
+          actor.getAllSectorLogs(),
+          actor.getAllAdminPosts(),
+          actor.getAllMenuItems(),
+        ]);
+        // Write to localStorage so components pick up fresh data
+        const localLogs: SectorLog[] = allLogs.map((l) => ({
+          id: l.id,
+          sector: l.sector,
+          title: l.title,
+          body: l.body,
+          author: l.author,
+          level: Number(l.level),
+          date: l.date,
+        }));
+        setSectorLogs(localLogs);
+
+        const localPosts: AdminPost[] = allPosts.map((p) => ({
+          id: p.id,
+          author: p.author,
+          content: p.content,
+          minLvl: Number(p.minLvl),
+          date: p.date,
+          sector: p.sector,
+        }));
+        setAdminPosts(localPosts);
+
+        const localItems: MenuItem[] = allItems.map((item) => ({
+          id: item.id,
+          facility: item.facility,
+          name: item.name,
+          price: item.price,
+          description: item.description,
+          createdBy: item.createdBy,
+          stock: canisterStockToLocal(item.stock),
+        }));
+        setMenuItems(localItems);
+        setMenuSnapshot(localItems);
+        setSyncTick((t) => t + 1);
+      } catch {
+        // fallback: use localStorage values already in state
+        setMenuSnapshot(getMenuItems());
+      }
+    }, 4000);
+    return () => clearInterval(id);
+  }, [actor]);
+
+  // Poll activities from canister every 5s
+  useEffect(() => {
+    if (!actor) return;
+    const id = setInterval(async () => {
+      try {
+        const acts = await actor.getActivities();
+        const localActs: ActivityEntry[] = acts.map((a) => ({
+          msg: a.msg,
+          ts: a.ts,
+        }));
+        // Merge with local and persist
+        localStorage.setItem(
+          "x_act_v22",
+          JSON.stringify(localActs.slice(0, 100)),
+        );
+        refreshActivities();
+      } catch {
+        // ignore
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [actor]);
+
+  // Poll member list + funds from canister every 5s
+  useEffect(() => {
+    if (!actor) return;
+    const id = setInterval(async () => {
+      try {
+        const [allUsers, allFunds] = await Promise.all([
+          actor.getAllUsers(),
+          actor.getAllMemberFunds(),
+        ]);
+        // Update localStorage user db
+        const db = getDB();
+        for (const [name, level] of allUsers) {
+          if (db[name]) {
+            db[name].lvl = Number(level);
+          } else {
+            db[name] = { lvl: Number(level), q: "", a: "" };
+          }
+        }
+        setDB(db);
+        // Update funds
+        for (const [name, amount] of allFunds) {
+          localStorage.setItem(`x_funds_${name}`, String(amount));
+        }
+        setSyncTick((t) => t + 1);
+      } catch {
+        // ignore
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [actor]);
+
+  // Poll office locations from canister every 10s
+  useEffect(() => {
+    if (!actor) return;
+    const id = setInterval(async () => {
+      try {
+        const json = await actor.getOfficeLocations();
+        if (json?.trim()) {
+          localStorage.setItem("x_office_locations_v1", json);
+          setSyncTick((t) => t + 1);
+        }
+      } catch {
+        // ignore
+      }
+    }, 10000);
+    return () => clearInterval(id);
+  }, [actor]);
+
+  // Initial load from canister on actor available
+  useEffect(() => {
+    if (!actor) return;
+    (async () => {
+      try {
+        const [bc, ld, offJson] = await Promise.all([
+          actor.getBroadcast(),
+          actor.getLockdown(),
+          actor.getOfficeLocations(),
+        ]);
+        setBroadcastMsg(bc);
+        setEbActive(!!bc);
+        setEbMsg(bc);
+        localStorage.setItem("x_lockdown_v1", ld ? "1" : "0");
+        setLockdownState(ld);
+        if (offJson?.trim()) {
+          localStorage.setItem("x_office_locations_v1", offJson);
+        }
+        // Load about content
+        const [about, features, credits] = await Promise.all([
+          actor.getContent("x_about_content_v1"),
+          actor.getContent("x_features_content_v1"),
+          actor.getContent("x_credits_content_v1"),
+        ]);
+        if (about) localStorage.setItem("x_about_content_v1", about);
+        if (features) localStorage.setItem("x_features_content_v1", features);
+        if (credits) localStorage.setItem("x_credits_content_v1", credits);
+        setSyncTick((t) => t + 1);
+      } catch {
+        // ignore
+      }
+    })();
+  }, [actor]);
+
+  // Poll lockdown state every 3s so all users see changes made by L6 on any device (local fallback)
   useEffect(() => {
     const id = setInterval(() => {
       setLockdownState(getLockdown());
@@ -5080,28 +6922,30 @@ export default function App() {
     const next = !lockdown;
     setLockdown(next);
     setLockdownState(next);
-    addActivity(
-      next ? "EMERGENCY LOCKDOWN ACTIVATED" : "EMERGENCY LOCKDOWN DEACTIVATED",
-    );
+    const msg = next
+      ? "EMERGENCY LOCKDOWN ACTIVATED"
+      : "EMERGENCY LOCKDOWN DEACTIVATED";
+    addActivity(msg);
     refreshActivities();
+    // Sync to canister
+    actor?.setLockdown(next).catch(() => {});
+    const ts = new Date().toISOString();
+    actor?.addActivity(msg, ts).catch(() => {});
   };
 
   const refreshActivities = useCallback(() => {
     setActivities(get24hActivities());
   }, []);
 
-  // Listen for EB events from SectorWorkspace
+  // Listen for activity events and forward to canister
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      if (detail.active) {
-        setEbActive(true);
-        setEbMsg(getBroadcastMsg());
-      }
+      const { msg, ts } = (e as CustomEvent).detail;
+      actor?.addActivity(msg, ts).catch(() => {});
     };
-    window.addEventListener("xution-eb", handler);
-    return () => window.removeEventListener("xution-eb", handler);
-  }, []);
+    window.addEventListener("xution-activity", handler);
+    return () => window.removeEventListener("xution-activity", handler);
+  }, [actor]);
 
   const handleLogin = (u: CurrentUser, online: boolean) => {
     setUser(u);
@@ -5115,6 +6959,66 @@ export default function App() {
     presenceIntervalRef.current = setInterval(() => {
       setPresence(u.name);
     }, 20000);
+
+    // Sync funds and card number from canister
+    if (online && actor) {
+      // Load card number from canister
+      actor
+        .getCardNumber(u.name)
+        .then((cardNum) => {
+          if (cardNum?.trim()) {
+            localStorage.setItem(`x_card_${u.name}`, cardNum);
+          } else {
+            // Card not in canister yet — generate locally and persist
+            const localCard = getCardNumber(u.name);
+            actor.setCardNumber(u.name, localCard).catch(() => {});
+          }
+        })
+        .catch(() => {});
+
+      // Load funds from canister
+      actor
+        .getMemberFunds(u.name)
+        .then((remoteFunds) => {
+          if (remoteFunds > 0) {
+            localStorage.setItem(`x_funds_${u.name}`, String(remoteFunds));
+          } else {
+            // No funds on canister yet — push local balance
+            const localFunds = getFunds(u.name);
+            actor.setMemberFunds(u.name, localFunds).catch(() => {});
+          }
+        })
+        .catch(() => {});
+
+      // Load transactions from canister
+      actor
+        .getMemberTransactions(u.name)
+        .then((txns) => {
+          if (txns.length > 0) {
+            const local = txns.map((t) => ({
+              member: t.member,
+              prevAmount: t.prevAmount,
+              newAmount: t.newAmount,
+              changedBy: t.changedBy,
+              ts: t.ts,
+              description: t.description,
+            }));
+            // Merge with existing local transactions (deduplicate by ts+member)
+            const existing = JSON.parse(
+              localStorage.getItem("x_transactions_v1") || "[]",
+            ) as TransactionEntry[];
+            const existingKeys = new Set(
+              existing.map((e) => `${e.ts}-${e.member}`),
+            );
+            const newOnes = local.filter(
+              (t) => !existingKeys.has(`${t.ts}-${t.member}`),
+            );
+            const merged = [...newOnes, ...existing].slice(0, 200);
+            localStorage.setItem("x_transactions_v1", JSON.stringify(merged));
+          }
+        })
+        .catch(() => {});
+    }
   };
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -5143,6 +7047,18 @@ export default function App() {
     setBroadcastMsg("");
     setEbActive(false);
     setEbMsg("");
+    actor?.clearBroadcast().catch(() => {});
+    addActivity("EMERGENCY BROADCAST DEACTIVATED");
+    refreshActivities();
+  };
+
+  const activateEB = (msg: string) => {
+    if (!msg) return;
+    setBroadcastMsg(msg);
+    setEbActive(true);
+    actor?.setBroadcast(msg).catch(() => {});
+    addActivity("EMERGENCY BROADCAST ACTIVATED");
+    refreshActivities();
   };
 
   const handleLogout = () => {
@@ -5269,7 +7185,7 @@ export default function App() {
           padding: "12px",
           borderRadius: "4px",
           textDecoration: "none",
-          zIndex: 9999,
+          zIndex: 9997,
           fontSize: "0.7rem",
           border: "2px solid #000",
           fontFamily: "'JetBrains Mono', 'Courier New', monospace",
@@ -5279,6 +7195,124 @@ export default function App() {
       >
         📧 CONTACT COMMAND
       </a>
+
+      {/* DM Button (beside gear, visible when logged in) */}
+      {user && (
+        <button
+          type="button"
+          data-ocid="dm.open_modal_button"
+          onClick={() => setDmInboxOpen((v) => !v)}
+          title="DIRECT MESSAGES"
+          style={{
+            position: "fixed",
+            bottom: "70px",
+            right: user?.lvl === 6 ? "72px" : "20px",
+            background: dmInboxOpen ? S.blue : "#0a0a0a",
+            color: dmInboxOpen ? "#000" : S.blue,
+            border: `2px solid ${S.blue}`,
+            borderRadius: "4px",
+            width: "44px",
+            height: "44px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            zIndex: 9997,
+            fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+            fontWeight: 900,
+            fontSize: "1.1rem",
+            boxShadow: dmInboxOpen
+              ? `0 0 16px ${S.blue}66`
+              : "0 2px 10px rgba(0,0,0,0.6)",
+            transition: "background 0.15s, color 0.15s, box-shadow 0.15s",
+          }}
+        >
+          💬{/* Unread badge on button */}
+          {getTotalUnreadDMs(user.name) > 0 && !dmInboxOpen && (
+            <span
+              style={{
+                position: "absolute",
+                top: "-6px",
+                right: "-6px",
+                background: S.red,
+                color: "#fff",
+                fontSize: "0.5rem",
+                fontWeight: 900,
+                borderRadius: "8px",
+                padding: "1px 5px",
+                letterSpacing: "0.5px",
+                pointerEvents: "none",
+              }}
+            >
+              {getTotalUnreadDMs(user.name)}
+            </span>
+          )}
+        </button>
+      )}
+
+      {/* Admin Settings Gear Button (L6 only) */}
+      {user?.lvl === 6 && (
+        <button
+          type="button"
+          data-ocid="admin_panel.open_modal_button"
+          onClick={() => setAdminPanelOpen((v) => !v)}
+          title="ADMIN SETTINGS"
+          style={{
+            position: "fixed",
+            bottom: "70px",
+            right: "20px",
+            background: adminPanelOpen ? S.gold : "#0a0a0a",
+            color: adminPanelOpen ? "#000" : S.gold,
+            border: `2px solid ${S.gold}`,
+            borderRadius: "4px",
+            width: "44px",
+            height: "44px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            zIndex: 9997,
+            fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+            fontWeight: 900,
+            fontSize: "1.2rem",
+            boxShadow: adminPanelOpen
+              ? `0 0 16px ${S.gold}66`
+              : "0 2px 10px rgba(0,0,0,0.6)",
+            transition: "background 0.15s, color 0.15s, box-shadow 0.15s",
+          }}
+        >
+          ⚙
+        </button>
+      )}
+
+      {/* Admin Settings Panel */}
+      {user?.lvl === 6 && (
+        <AdminSettingsPanel
+          open={adminPanelOpen}
+          onClose={() => setAdminPanelOpen(false)}
+          currentUser={user}
+          lockdown={lockdown}
+          onLockdownToggle={toggleLockdown}
+          onUpdate={refreshActivities}
+          ebMsg={ebMsg}
+          ebActive={ebActive}
+          onEbMsgChange={setEbMsg}
+          onActivateEB={activateEB}
+          onDeactivateEB={deactivateEB}
+        />
+      )}
+
+      {/* DM Inbox Overlay */}
+      {user && dmInboxOpen && (
+        <DMInboxOverlay
+          currentUser={user}
+          onClose={() => setDmInboxOpen(false)}
+          onOpenDM={(name) => {
+            setDmTarget(name);
+            setDmInboxOpen(false);
+          }}
+        />
+      )}
 
       {/* DM Panel */}
       {user && dmTarget && (
@@ -5616,81 +7650,16 @@ export default function App() {
           </div>
         </div>
 
-        {/* Fund Management (L6 Sovereigns only) */}
-        {user?.lvl === 6 && (
-          <>
-            <FundManagement onUpdate={refreshActivities} currentUser={user} />
-            <GlobalTransactionHistory />
-
-            {/* Emergency Lockdown Control */}
-            <div style={{ marginBottom: "30px" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  borderLeft: `5px solid ${lockdown ? "#ff6600" : S.dim}`,
-                  paddingLeft: "15px",
-                  marginBottom: "10px",
-                }}
-              >
-                <div>
-                  <h3
-                    style={{
-                      margin: 0,
-                      fontSize: "0.85rem",
-                      letterSpacing: "3px",
-                      color: lockdown ? "#ff6600" : S.dim,
-                      fontFamily: "'JetBrains Mono', 'Courier New', monospace",
-                      fontWeight: 900,
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    EMERGENCY LOCKDOWN
-                  </h3>
-                  <div
-                    style={{
-                      fontSize: "0.55rem",
-                      color: S.dim,
-                      letterSpacing: "2px",
-                      marginTop: "4px",
-                    }}
-                  >
-                    {lockdown
-                      ? "ACTIVE — PROMOTIONS, DEMOTIONS & DELETIONS BLOCKED. ALL POSTS REDACTED."
-                      : "INACTIVE — ALL SYSTEMS NORMAL"}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  data-ocid="lockdown.toggle_button"
-                  onClick={toggleLockdown}
-                  style={{
-                    ...btnSmall,
-                    background: lockdown ? "#222" : "#3a0000",
-                    color: lockdown ? "#ff6600" : S.red,
-                    border: `1px solid ${lockdown ? "#ff6600" : S.red}`,
-                    padding: "8px 16px",
-                    flex: "none",
-                    fontSize: "0.7rem",
-                    marginLeft: "15px",
-                  }}
-                >
-                  {lockdown ? "🔓 LIFT LOCKDOWN" : "🔒 INITIATE LOCKDOWN"}
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-
         {/* Member Directory (collapsible, all logged-in users) */}
         {user && (
-          <MemberList
-            currentUser={user}
-            onActivity={refreshActivities}
-            onDM={(name) => setDmTarget(name)}
-            lockdown={lockdown}
-          />
+          <div id="member-directory-section">
+            <MemberList
+              currentUser={user}
+              onActivity={refreshActivities}
+              onDM={(name) => setDmTarget(name)}
+              lockdown={lockdown}
+            />
+          </div>
         )}
 
         {/* Active Office Selector — above Facilities */}
