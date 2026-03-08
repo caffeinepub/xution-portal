@@ -2076,6 +2076,46 @@ function AuthScreen({
   );
 }
 
+// ─── Saved Emoji / GIF helpers ───────────────────────────────────────────────
+
+function getSavedEmojis(): string[] {
+  return JSON.parse(localStorage.getItem("x_saved_emojis_v1") || "[]");
+}
+function setSavedEmojis(list: string[]): void {
+  localStorage.setItem("x_saved_emojis_v1", JSON.stringify(list));
+}
+function toggleSavedEmoji(emoji: string): string[] {
+  const list = getSavedEmojis();
+  const idx = list.indexOf(emoji);
+  if (idx >= 0) list.splice(idx, 1);
+  else list.unshift(emoji);
+  setSavedEmojis(list);
+  return [...list];
+}
+
+interface SavedGif {
+  url: string;
+  label: string;
+}
+function getSavedGifs(): SavedGif[] {
+  return JSON.parse(localStorage.getItem("x_saved_gifs_v1") || "[]");
+}
+function setSavedGifs(list: SavedGif[]): void {
+  localStorage.setItem("x_saved_gifs_v1", JSON.stringify(list));
+}
+function addSavedGif(url: string, label: string): SavedGif[] {
+  const list = getSavedGifs();
+  if (list.some((g) => g.url === url)) return list;
+  list.unshift({ url, label: label || url });
+  setSavedGifs(list);
+  return [...list];
+}
+function removeSavedGif(url: string): SavedGif[] {
+  const list = getSavedGifs().filter((g) => g.url !== url);
+  setSavedGifs(list);
+  return [...list];
+}
+
 // ─── DMPanel ──────────────────────────────────────────────────────────────────
 
 const EMOJI_LIST = [
@@ -2161,8 +2201,13 @@ function DMPanel({
   >([]);
   const pendingKeyRef = useRef(0);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiTab, setEmojiTab] = useState<"all" | "saved">("all");
+  const [savedEmojis, setSavedEmojisState] = useState<string[]>(getSavedEmojis);
   const [showGifPanel, setShowGifPanel] = useState(false);
+  const [gifTab, setGifTab] = useState<"add" | "saved">("add");
+  const [savedGifs, setSavedGifsState] = useState<SavedGif[]>(getSavedGifs);
   const [gifUrl, setGifUrl] = useState("");
+  const [gifLabel, setGifLabel] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [recordingError, setRecordingError] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -2313,7 +2358,29 @@ function DMPanel({
       { type: "gif", url: gifUrl.trim(), _key: ++pendingKeyRef.current },
     ]);
     setGifUrl("");
+    setGifLabel("");
     setShowGifPanel(false);
+  };
+
+  const handleSaveGif = () => {
+    if (!gifUrl.trim()) return;
+    const updated = addSavedGif(
+      gifUrl.trim(),
+      gifLabel.trim() || gifUrl.trim(),
+    );
+    setSavedGifsState(updated);
+    setGifUrl("");
+    setGifLabel("");
+  };
+
+  const handleDeleteSavedGif = (url: string) => {
+    const updated = removeSavedGif(url);
+    setSavedGifsState(updated);
+  };
+
+  const handleToggleSavedEmoji = (emoji: string) => {
+    const updated = toggleSavedEmoji(emoji);
+    setSavedEmojisState(updated);
   };
 
   const handleEmojiClick = (emoji: string) => {
@@ -2824,93 +2891,383 @@ function DMPanel({
         {showGifPanel && (
           <div
             style={{
-              padding: "6px 10px",
               borderBottom: `1px solid ${S.brd}`,
-              display: "flex",
-              gap: "5px",
+              background: "#080808",
             }}
           >
-            <input
-              type="text"
-              placeholder="PASTE GIF URL..."
-              value={gifUrl}
-              onChange={(e) => setGifUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAddGif()}
-              style={{
-                ...inputStyle,
-                margin: 0,
-                flex: 1,
-                fontSize: "0.65rem",
-                padding: "5px 7px",
-              }}
-            />
-            <button
-              type="button"
-              onClick={handleAddGif}
-              style={{
-                background: S.gold,
-                color: "#000",
-                border: "none",
-                padding: "5px 10px",
-                fontWeight: 900,
-                cursor: "pointer",
-                fontSize: "0.65rem",
-                letterSpacing: "1px",
-                fontFamily: "inherit",
-                textTransform: "uppercase",
-              }}
+            {/* Tabs */}
+            <div
+              style={{ display: "flex", borderBottom: `1px solid ${S.brd}` }}
             >
-              ADD
-            </button>
+              {(["add", "saved"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setGifTab(tab)}
+                  style={{
+                    flex: 1,
+                    padding: "5px",
+                    background: "transparent",
+                    border: "none",
+                    borderBottom:
+                      gifTab === tab
+                        ? `2px solid ${S.gold}`
+                        : "2px solid transparent",
+                    color: gifTab === tab ? S.gold : S.dim,
+                    fontSize: "0.6rem",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  {tab === "add" ? "ADD GIF" : `SAVED (${savedGifs.length})`}
+                </button>
+              ))}
+            </div>
+
+            {gifTab === "add" && (
+              <div
+                style={{
+                  padding: "6px 10px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}
+              >
+                <input
+                  type="text"
+                  placeholder="PASTE GIF URL..."
+                  value={gifUrl}
+                  onChange={(e) => setGifUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddGif()}
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    fontSize: "0.65rem",
+                    padding: "5px 7px",
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="LABEL (OPTIONAL)..."
+                  value={gifLabel}
+                  onChange={(e) => setGifLabel(e.target.value)}
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    fontSize: "0.65rem",
+                    padding: "5px 7px",
+                  }}
+                />
+                <div style={{ display: "flex", gap: "5px" }}>
+                  <button
+                    type="button"
+                    onClick={handleAddGif}
+                    style={{
+                      flex: 1,
+                      background: S.gold,
+                      color: "#000",
+                      border: "none",
+                      padding: "5px",
+                      fontWeight: 900,
+                      cursor: "pointer",
+                      fontSize: "0.65rem",
+                      letterSpacing: "1px",
+                      fontFamily: "inherit",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    SEND
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveGif}
+                    style={{
+                      flex: 1,
+                      background: "#1a1500",
+                      color: S.gold,
+                      border: `1px solid ${S.gold}55`,
+                      padding: "5px",
+                      fontWeight: 900,
+                      cursor: "pointer",
+                      fontSize: "0.65rem",
+                      letterSpacing: "1px",
+                      fontFamily: "inherit",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    SAVE
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {gifTab === "saved" && (
+              <div
+                className="xution-scroll"
+                style={{
+                  maxHeight: "160px",
+                  overflowY: "auto",
+                  padding: "6px 10px",
+                }}
+              >
+                {savedGifs.length === 0 ? (
+                  <div
+                    style={{
+                      color: S.dim,
+                      fontSize: "0.6rem",
+                      textAlign: "center",
+                      padding: "12px 0",
+                      letterSpacing: "1px",
+                    }}
+                  >
+                    NO SAVED GIFS
+                  </div>
+                ) : (
+                  savedGifs.map((gif) => (
+                    <div
+                      key={gif.url}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "4px 0",
+                        borderBottom: `1px solid ${S.brd}`,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingAttachments((prev) => [
+                            ...prev,
+                            {
+                              type: "gif",
+                              url: gif.url,
+                              _key: ++pendingKeyRef.current,
+                            },
+                          ]);
+                          setShowGifPanel(false);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          flex: 1,
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: 0,
+                          minWidth: 0,
+                        }}
+                      >
+                        <img
+                          src={gif.url}
+                          alt={gif.label}
+                          style={{
+                            width: "40px",
+                            height: "40px",
+                            objectFit: "cover",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span
+                          style={{
+                            flex: 1,
+                            fontSize: "0.6rem",
+                            color: S.white,
+                            letterSpacing: "0.5px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            textAlign: "left",
+                          }}
+                        >
+                          {gif.label}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSavedGif(gif.url)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: S.red,
+                          cursor: "pointer",
+                          fontSize: "0.7rem",
+                          padding: "2px 4px",
+                          flexShrink: 0,
+                        }}
+                        title="DELETE"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {/* Emoji picker */}
         {showEmojiPicker && (
           <div
-            className="xution-scroll"
             style={{
-              padding: "6px 10px",
               borderBottom: `1px solid ${S.brd}`,
-              maxHeight: "130px",
-              overflowY: "auto",
               background: "#080808",
             }}
           >
+            {/* Tabs */}
             <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(6, 1fr)",
-                gap: "3px",
-              }}
+              style={{ display: "flex", borderBottom: `1px solid ${S.brd}` }}
             >
-              {EMOJI_LIST.map((emoji) => (
+              {(["all", "saved"] as const).map((tab) => (
                 <button
-                  key={emoji}
+                  key={tab}
                   type="button"
-                  onClick={() => handleEmojiClick(emoji)}
+                  onClick={() => setEmojiTab(tab)}
                   style={{
+                    flex: 1,
+                    padding: "5px",
                     background: "transparent",
                     border: "none",
+                    borderBottom:
+                      emojiTab === tab
+                        ? `2px solid ${S.gold}`
+                        : "2px solid transparent",
+                    color: emojiTab === tab ? S.gold : S.dim,
+                    fontSize: "0.6rem",
+                    fontWeight: 900,
                     cursor: "pointer",
-                    fontSize: "1.1rem",
-                    padding: "3px",
-                    textAlign: "center",
-                    borderRadius: "3px",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      "#222";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      "transparent";
+                    fontFamily: "inherit",
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
                   }}
                 >
-                  {emoji}
+                  {tab === "all" ? "ALL" : `SAVED (${savedEmojis.length})`}
                 </button>
               ))}
             </div>
+
+            <div
+              className="xution-scroll"
+              style={{
+                padding: "6px 10px",
+                maxHeight: "130px",
+                overflowY: "auto",
+              }}
+            >
+              {emojiTab === "saved" && savedEmojis.length === 0 ? (
+                <div
+                  style={{
+                    color: S.dim,
+                    fontSize: "0.6rem",
+                    textAlign: "center",
+                    padding: "12px 0",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  NO SAVED EMOJIS — HOLD ANY EMOJI TO SAVE
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(6, 1fr)",
+                    gap: "3px",
+                  }}
+                >
+                  {(emojiTab === "all" ? EMOJI_LIST : savedEmojis).map(
+                    (emoji) => {
+                      const isSaved = savedEmojis.includes(emoji);
+                      return (
+                        <div key={emoji} style={{ position: "relative" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleEmojiClick(emoji)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              handleToggleSavedEmoji(emoji);
+                            }}
+                            title={
+                              isSaved
+                                ? "Right-click to unsave"
+                                : "Right-click to save"
+                            }
+                            style={{
+                              background: isSaved ? "#1a1500" : "transparent",
+                              border: isSaved
+                                ? `1px solid ${S.gold}33`
+                                : "none",
+                              cursor: "pointer",
+                              fontSize: "1.1rem",
+                              padding: "3px",
+                              textAlign: "center",
+                              borderRadius: "3px",
+                              width: "100%",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSaved)
+                                (
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.background = "#222";
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSaved)
+                                (
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.background = "transparent";
+                            }}
+                          >
+                            {emoji}
+                          </button>
+                          {isSaved && emojiTab === "saved" && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSavedEmoji(emoji)}
+                              style={{
+                                position: "absolute",
+                                top: "-3px",
+                                right: "-3px",
+                                background: S.red,
+                                border: "none",
+                                color: "#fff",
+                                fontSize: "0.45rem",
+                                width: "12px",
+                                height: "12px",
+                                borderRadius: "50%",
+                                cursor: "pointer",
+                                padding: 0,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                lineHeight: 1,
+                              }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    },
+                  )}
+                </div>
+              )}
+            </div>
+            {emojiTab === "all" && (
+              <div
+                style={{
+                  padding: "3px 10px 5px",
+                  fontSize: "0.5rem",
+                  color: S.dim,
+                  letterSpacing: "0.5px",
+                }}
+              >
+                RIGHT-CLICK ANY EMOJI TO SAVE/UNSAVE IT
+              </div>
+            )}
           </div>
         )}
 
@@ -7196,7 +7553,7 @@ export default function App() {
         📧 CONTACT COMMAND
       </a>
 
-      {/* DM Button (beside gear, visible when logged in) */}
+      {/* DM Button — stacked above gear (or above contact pill for non-L6) */}
       {user && (
         <button
           type="button"
@@ -7205,8 +7562,8 @@ export default function App() {
           title="DIRECT MESSAGES"
           style={{
             position: "fixed",
-            bottom: "70px",
-            right: user?.lvl === 6 ? "72px" : "20px",
+            bottom: user?.lvl === 6 ? "132px" : "76px",
+            right: "20px",
             background: dmInboxOpen ? S.blue : "#0a0a0a",
             color: dmInboxOpen ? "#000" : S.blue,
             border: `2px solid ${S.blue}`,
@@ -7250,7 +7607,7 @@ export default function App() {
         </button>
       )}
 
-      {/* Admin Settings Gear Button (L6 only) */}
+      {/* Admin Settings Gear Button (L6 only) — sits between contact pill and DM button */}
       {user?.lvl === 6 && (
         <button
           type="button"
@@ -7259,7 +7616,7 @@ export default function App() {
           title="ADMIN SETTINGS"
           style={{
             position: "fixed",
-            bottom: "70px",
+            bottom: "76px",
             right: "20px",
             background: adminPanelOpen ? S.gold : "#0a0a0a",
             color: adminPanelOpen ? "#000" : S.gold,
