@@ -1857,23 +1857,6 @@ function AuthScreen({
         );
       } catch {
         // Backend offline or invalid credentials — try localStorage fallback
-        // UNITY always bypasses backend and password check
-        if (n === "UNITY") {
-          if (!db[n]) {
-            db[n] = {
-              lvl: 6,
-              q: "SECRET ANSWER",
-              a: "bacon",
-              uid: generateUID(),
-            };
-            setDB(db);
-          }
-          setOfflineMode(true);
-          addActivity(`ID LOGGED IN: ${n} (OFFLINE)`);
-          setLoading(false);
-          onLogin({ name: n, ...db[n] }, false);
-          return;
-        }
         if (!db[n]) {
           setErr("NOT FOUND");
           setLoading(false);
