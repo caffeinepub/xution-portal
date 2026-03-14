@@ -178,6 +178,7 @@ export interface backendInterface {
     updateMenuItemStock(id: string, newStock: bigint): Promise<void>;
     updateSectorLog(id: string, newBody: string): Promise<void>;
     updateUserLevel(name: string, newLevel: bigint): Promise<void>;
+    updateUserAnswer(name: string, newAnswer: string): Promise<void>;
     userExists(name: string): Promise<boolean>;
 }
 export class Backend implements backendInterface {
@@ -767,6 +768,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.updateUserLevel(arg0, arg1);
+            return result;
+        }
+    }
+    async updateUserAnswer(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateUserAnswer(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateUserAnswer(arg0, arg1);
             return result;
         }
     }

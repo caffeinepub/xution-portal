@@ -188,6 +188,16 @@ actor {
     };
   };
 
+  public shared ({ caller }) func updateUserAnswer(name : Text, newAnswer : Text) : async () {
+    switch (users.get(name)) {
+      case (null) { Runtime.trap("Could not update answer: user does not exist.") };
+      case (?user) {
+        let updatedUser = { user with answer = newAnswer };
+        users.add(name, updatedUser);
+      };
+    };
+  };
+
   public shared ({ caller }) func deleteUser(name : Text) : async () {
     let nameNormalized = Text.fromIter(
       name.toIter().map(

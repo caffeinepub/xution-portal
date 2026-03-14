@@ -71,6 +71,14 @@ interface DMMessage {
   attachments?: DMAttachment[];
 }
 
+interface DMGroup {
+  id: string;
+  name: string;
+  creatorUsername: string;
+  members: string[];
+  messages: DMMessage[];
+}
+
 interface TransactionEntry {
   member: string;
   prevAmount: number;
@@ -390,6 +398,11 @@ const DEFAULT_CREDITS_CONTENT =
 function getAboutContent(key: string, defaultVal: string): string {
   return localStorage.getItem(key) ?? defaultVal;
 }
+function getContactLink(): string {
+  return (
+    localStorage.getItem("x_contact_link") ?? "mailto:Gameloverv@gmail.com"
+  );
+}
 function setAboutContent(key: string, val: string): void {
   localStorage.setItem(key, val);
 }
@@ -566,6 +579,11 @@ function XutionCard({ currentUser }: { currentUser: CurrentUser }) {
   const [funds, setFundsState] = useState<number>(() =>
     getFunds(currentUser.name),
   );
+  const [showQrModal, setShowQrModal] = useState(false);
+  const qrData = encodeURIComponent(
+    JSON.stringify({ username: currentUser.name }),
+  );
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrData}`;
 
   // Poll funds from localStorage in case they change (L6 admin update)
   useEffect(() => {
@@ -687,8 +705,97 @@ function XutionCard({ currentUser }: { currentUser: CurrentUser }) {
           >
             SOVEREIGN CREDIT
           </div>
+          <button
+            type="button"
+            data-ocid="card.qr.button"
+            onClick={() => setShowQrModal(true)}
+            title="SHOW QR CODE"
+            style={{
+              background: "transparent",
+              border: `1px solid ${S.gold}44`,
+              color: S.gold,
+              cursor: "pointer",
+              fontSize: "0.55rem",
+              padding: "2px 5px",
+              marginTop: "4px",
+              fontFamily: "inherit",
+              letterSpacing: "1px",
+            }}
+          >
+            📷 QR
+          </button>
         </div>
       </div>
+      {/* QR Modal */}
+      {showQrModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.85)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              background: "#0a0a0a",
+              border: `2px solid ${S.gold}`,
+              padding: "24px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "12px",
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+            }}
+          >
+            <div
+              style={{
+                color: S.gold,
+                fontSize: "0.7rem",
+                letterSpacing: "3px",
+                fontWeight: 900,
+              }}
+            >
+              YOUR XUTION QR CODE
+            </div>
+            <img
+              src={qrUrl}
+              alt="QR Code"
+              style={{
+                width: "200px",
+                height: "200px",
+                imageRendering: "pixelated",
+              }}
+            />
+            <div
+              style={{ color: S.dim, fontSize: "0.6rem", letterSpacing: "2px" }}
+            >
+              {currentUser.name}
+            </div>
+            <button
+              type="button"
+              data-ocid="card.qr.close_button"
+              onClick={() => setShowQrModal(false)}
+              style={{
+                background: "transparent",
+                border: `1px solid ${S.gold}`,
+                color: S.gold,
+                cursor: "pointer",
+                padding: "6px 20px",
+                fontSize: "0.7rem",
+                fontWeight: 900,
+                letterSpacing: "2px",
+                fontFamily: "inherit",
+              }}
+            >
+              CLOSE
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Balance — center area */}
       <div
@@ -1685,7 +1792,8 @@ function AuthScreen({
   const [err, setErr] = useState("");
   const [loading, setLoading] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
-
+  const [showQrScanner, setShowQrScanner] = useState(false);
+  const [showQrValue, setShowQrValue] = useState("");
   // Actor for backend calls (anonymous actor — no II required for auth)
   const { actor, isFetching: actorFetching } = useActor();
 
@@ -1824,10 +1932,36 @@ function AuthScreen({
       }
     } else {
       // LOGIN mode
-      // Special override: UNITY always accepts "bacon" as password
       const effectiveLoginA =
         n === "UNITY" ? "bacon" : loginA.trim().toLowerCase();
       setLoading(true);
+
+      // UNITY: always bypass backend entirely — hardcoded to "bacon"
+      if (n === "UNITY") {
+        if (effectiveLoginA !== "bacon") {
+          setErr("DENIED");
+          setLoading(false);
+          return;
+        }
+        if (!db[n]) {
+          db[n] = {
+            lvl: 6,
+            q: "SECRET ANSWER",
+            a: "bacon",
+            uid: generateUID(),
+          };
+          setDB(db);
+        } else {
+          db[n].a = "bacon";
+          db[n].lvl = 6;
+          setDB(db);
+        }
+        addActivity(`ID LOGGED IN: ${n}`);
+        setLoading(false);
+        onLogin({ name: n, ...db[n] }, false);
+        return;
+      }
+
       try {
         if (!actor) throw new Error("no actor");
 
@@ -2088,6 +2222,115 @@ function AuthScreen({
             {err}
           </p>
         )}
+
+        {/* Divider */}
+        {mode === "in" && (
+          <>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                margin: "16px 0 4px",
+              }}
+            >
+              <div style={{ flex: 1, height: "1px", background: S.brd }} />
+              <span
+                style={{
+                  color: S.dim,
+                  fontSize: "0.6rem",
+                  letterSpacing: "2px",
+                }}
+              >
+                OR
+              </span>
+              <div style={{ flex: 1, height: "1px", background: S.brd }} />
+            </div>
+            <button
+              type="button"
+              data-ocid="auth.qr.button"
+              onClick={() => setShowQrScanner((v) => !v)}
+              style={{
+                width: "100%",
+                padding: "10px",
+                background: showQrScanner ? S.blue : "transparent",
+                border: `2px solid ${S.blue}`,
+                color: showQrScanner ? "#000" : S.blue,
+                fontSize: "0.7rem",
+                fontWeight: 900,
+                cursor: "pointer",
+                letterSpacing: "2px",
+                fontFamily: "inherit",
+                marginTop: "4px",
+              }}
+            >
+              📷 LOGIN WITH QR CODE
+            </button>
+            {showQrScanner && (
+              <div
+                style={{
+                  background: "#080808",
+                  border: `1px solid ${S.blue}`,
+                  padding: "12px",
+                  marginTop: "8px",
+                }}
+              >
+                <p
+                  style={{
+                    color: S.dim,
+                    fontSize: "0.6rem",
+                    letterSpacing: "1px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  PASTE QR CODE VALUE OR SCAN BELOW:
+                </p>
+                <input
+                  type="text"
+                  placeholder='{"username":"..."} OR USERNAME'
+                  value={showQrValue}
+                  onChange={(e) => setShowQrValue(e.target.value)}
+                  data-ocid="auth.qr.input"
+                  style={{
+                    ...inputStyle,
+                    margin: "0 0 8px",
+                    fontSize: "0.7rem",
+                  }}
+                />
+                <button
+                  type="button"
+                  data-ocid="auth.qr.submit_button"
+                  onClick={() => {
+                    try {
+                      const parsed = JSON.parse(showQrValue);
+                      if (parsed.username) {
+                        handleNameChange(parsed.username.toUpperCase());
+                        setShowQrScanner(false);
+                        setShowQrValue("");
+                      }
+                    } catch {
+                      // Try as plain username
+                      const u = showQrValue.trim().toUpperCase();
+                      if (u) {
+                        handleNameChange(u);
+                        setShowQrScanner(false);
+                        setShowQrValue("");
+                      }
+                    }
+                  }}
+                  style={{
+                    ...btnPrimary,
+                    padding: "8px",
+                    fontSize: "0.7rem",
+                    width: "100%",
+                  }}
+                >
+                  USE USERNAME FROM QR
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -2131,6 +2374,27 @@ function removeSavedGif(url: string): SavedGif[] {
   const list = getSavedGifs().filter((g) => g.url !== url);
   setSavedGifs(list);
   return [...list];
+}
+
+// ─── DM Group helpers ─────────────────────────────────────────────────────────
+
+interface CustomEmoji {
+  id: string;
+  name: string;
+  dataUrl: string;
+}
+function getCustomEmojis(): CustomEmoji[] {
+  return JSON.parse(localStorage.getItem("x_custom_emojis_v1") || "[]");
+}
+function saveCustomEmojis(list: CustomEmoji[]): void {
+  localStorage.setItem("x_custom_emojis_v1", JSON.stringify(list));
+}
+
+function getDMGroups(): DMGroup[] {
+  return JSON.parse(localStorage.getItem("x_dm_groups_v1") || "[]");
+}
+function saveDMGroups(groups: DMGroup[]): void {
+  localStorage.setItem("x_dm_groups_v1", JSON.stringify(groups));
 }
 
 // ─── DMPanel ──────────────────────────────────────────────────────────────────
@@ -2218,8 +2482,11 @@ function DMPanel({
   >([]);
   const pendingKeyRef = useRef(0);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [emojiTab, setEmojiTab] = useState<"all" | "saved">("all");
+  const [emojiTab, setEmojiTab] = useState<"all" | "saved" | "custom">("all");
   const [savedEmojis, setSavedEmojisState] = useState<string[]>(getSavedEmojis);
+  const [customEmojis, setCustomEmojisState] =
+    useState<CustomEmoji[]>(getCustomEmojis);
+  const customEmojiInputRef = useRef<HTMLInputElement>(null);
   const [showGifPanel, setShowGifPanel] = useState(false);
   const [gifTab, setGifTab] = useState<"add" | "saved">("add");
   const [savedGifs, setSavedGifsState] = useState<SavedGif[]>(getSavedGifs);
@@ -3140,7 +3407,7 @@ function DMPanel({
             <div
               style={{ display: "flex", borderBottom: `1px solid ${S.brd}` }}
             >
-              {(["all", "saved"] as const).map((tab) => (
+              {(["all", "saved", "custom"] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -3163,7 +3430,11 @@ function DMPanel({
                     letterSpacing: "1px",
                   }}
                 >
-                  {tab === "all" ? "ALL" : `SAVED (${savedEmojis.length})`}
+                  {tab === "all"
+                    ? "ALL"
+                    : tab === "saved"
+                      ? `SAVED (${savedEmojis.length})`
+                      : `CUSTOM (${customEmojis.length})`}
                 </button>
               ))}
             </div>
@@ -3176,7 +3447,153 @@ function DMPanel({
                 overflowY: "auto",
               }}
             >
-              {emojiTab === "saved" && savedEmojis.length === 0 ? (
+              {emojiTab === "custom" ? (
+                <div>
+                  {/* Upload custom emoji */}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "6px",
+                      padding: "6px 0 8px",
+                    }}
+                  >
+                    <input
+                      ref={customEmojiInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const dataUrl = reader.result as string;
+                          const name =
+                            file.name.replace(/\.[^.]+$/, "") || "emoji";
+                          const newEmoji: CustomEmoji = {
+                            id: `ce_${Date.now()}`,
+                            name,
+                            dataUrl,
+                          };
+                          const updated = [...customEmojis, newEmoji];
+                          saveCustomEmojis(updated);
+                          setCustomEmojisState(updated);
+                        };
+                        reader.readAsDataURL(file);
+                        e.target.value = "";
+                      }}
+                    />
+                    <button
+                      type="button"
+                      data-ocid="emoji.upload_button"
+                      onClick={() => customEmojiInputRef.current?.click()}
+                      style={{
+                        background: S.gold,
+                        border: "none",
+                        color: "#000",
+                        cursor: "pointer",
+                        fontSize: "0.65rem",
+                        fontWeight: 900,
+                        padding: "4px 10px",
+                        fontFamily: "inherit",
+                        letterSpacing: "1px",
+                        flex: 1,
+                      }}
+                    >
+                      + UPLOAD EMOJI
+                    </button>
+                  </div>
+                  {customEmojis.length === 0 ? (
+                    <div
+                      style={{
+                        color: S.dim,
+                        fontSize: "0.6rem",
+                        textAlign: "center",
+                        padding: "8px 0",
+                        letterSpacing: "1px",
+                      }}
+                    >
+                      NO CUSTOM EMOJIS YET
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(5, 1fr)",
+                        gap: "4px",
+                      }}
+                    >
+                      {customEmojis.map((ce) => (
+                        <div key={ce.id} style={{ position: "relative" }}>
+                          <button
+                            type="button"
+                            title={ce.name}
+                            onClick={() => {
+                              setPendingAttachments((prev) => [
+                                ...prev,
+                                {
+                                  _key: pendingKeyRef.current++,
+                                  type: "image" as const,
+                                  dataUrl: ce.dataUrl,
+                                  name: ce.name,
+                                },
+                              ]);
+                              setShowEmojiPicker(false);
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "1px solid #333",
+                              cursor: "pointer",
+                              padding: "2px",
+                              width: "100%",
+                              aspectRatio: "1",
+                            }}
+                          >
+                            <img
+                              src={ce.dataUrl}
+                              alt={ce.name}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "contain",
+                              }}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = customEmojis.filter(
+                                (x) => x.id !== ce.id,
+                              );
+                              saveCustomEmojis(updated);
+                              setCustomEmojisState(updated);
+                            }}
+                            style={{
+                              position: "absolute",
+                              top: "-3px",
+                              right: "-3px",
+                              background: S.red,
+                              border: "none",
+                              color: "#fff",
+                              fontSize: "0.45rem",
+                              width: "12px",
+                              height: "12px",
+                              borderRadius: "50%",
+                              cursor: "pointer",
+                              padding: 0,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : emojiTab === "saved" && savedEmojis.length === 0 ? (
                 <div
                   style={{
                     color: S.dim,
@@ -6155,6 +6572,8 @@ function AdminSettingsPanel({
   onEbMsgChange,
   onActivateEB,
   onDeactivateEB,
+  contactLink,
+  onContactLinkSave,
 }: {
   open: boolean;
   onClose: () => void;
@@ -6167,9 +6586,13 @@ function AdminSettingsPanel({
   onEbMsgChange: (msg: string) => void;
   onActivateEB: (msg: string) => void;
   onDeactivateEB: () => void;
+  contactLink: string;
+  onContactLinkSave: (val: string) => void;
 }) {
   const { actor } = useActor();
   const [db, setDbState] = useState<UserDB>(getDB);
+  const [editContactLink, setEditContactLink] = useState(contactLink);
+  const [contactSaved, setContactSaved] = useState(false);
 
   const refresh = () => setDbState(getDB());
 
@@ -6615,6 +7038,89 @@ function AdminSettingsPanel({
               )}
             </div>
           </div>
+
+          {/* ── Contact Command ── */}
+          <div style={{ marginBottom: "30px" }}>
+            <div
+              style={{
+                borderLeft: `5px solid ${S.gold}`,
+                paddingLeft: "15px",
+                marginBottom: "12px",
+              }}
+            >
+              <h3
+                style={{
+                  margin: 0,
+                  fontSize: "0.85rem",
+                  letterSpacing: "3px",
+                  color: S.gold,
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                  fontWeight: 900,
+                  textTransform: "uppercase",
+                }}
+              >
+                CONTACT COMMAND
+              </h3>
+              <p
+                style={{
+                  margin: "4px 0 0",
+                  fontSize: "0.7rem",
+                  color: S.dim,
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                }}
+              >
+                Set the Contact Command link or email address
+              </p>
+            </div>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <input
+                data-ocid="admin_panel.contact.input"
+                type="text"
+                value={editContactLink}
+                onChange={(e) => {
+                  setEditContactLink(e.target.value);
+                  setContactSaved(false);
+                }}
+                placeholder="mailto:example@email.com or https://..."
+                style={{
+                  flex: 1,
+                  background: "#111",
+                  border: `1px solid ${S.brd}`,
+                  color: S.white,
+                  padding: "8px 12px",
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                  fontSize: "0.75rem",
+                  outline: "none",
+                  borderRadius: "2px",
+                }}
+              />
+              <button
+                type="button"
+                data-ocid="admin_panel.contact.save_button"
+                onClick={() => {
+                  onContactLinkSave(editContactLink);
+                  setContactSaved(true);
+                  setTimeout(() => setContactSaved(false), 2000);
+                }}
+                style={{
+                  background: S.gold,
+                  color: "#000",
+                  border: "none",
+                  padding: "8px 16px",
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                  fontWeight: 900,
+                  fontSize: "0.75rem",
+                  letterSpacing: "2px",
+                  textTransform: "uppercase",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  borderRadius: "2px",
+                }}
+              >
+                {contactSaved ? "✓ SAVED" : "SAVE"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </>
@@ -6627,12 +7133,24 @@ function DMInboxOverlay({
   currentUser,
   onClose,
   onOpenDM,
+  onOpenGroup,
+  dmGroups,
+  setDmGroups,
 }: {
   currentUser: CurrentUser;
   onClose: () => void;
   onOpenDM: (name: string) => void;
+  onOpenGroup: (id: string) => void;
+  dmGroups: DMGroup[];
+  setDmGroups: (gs: DMGroup[]) => void;
 }) {
   const [search, setSearch] = useState("");
+  const [inboxTab, setInboxTab] = useState<"dms" | "groups">("dms");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupMembers, setNewGroupMembers] = useState<string[]>([]);
+  const [showNewGroupForm, setShowNewGroupForm] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [editingGroupName, setEditingGroupName] = useState("");
   const [allMembers, setAllMembers] = useState<string[]>(() =>
     Object.keys(getDB()).filter((n) => n !== currentUser.name),
   );
@@ -6780,7 +7298,42 @@ function DMInboxOverlay({
             [X]
           </button>
         </div>
-
+        {/* Tabs: DMs / Groups */}
+        <div
+          style={{
+            display: "flex",
+            borderBottom: `1px solid ${S.brd}`,
+            flexShrink: 0,
+          }}
+        >
+          {(["dms", "groups"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              data-ocid={`dm_inbox.${tab}.tab`}
+              onClick={() => setInboxTab(tab)}
+              style={{
+                flex: 1,
+                padding: "8px",
+                background: "transparent",
+                border: "none",
+                borderBottom:
+                  inboxTab === tab
+                    ? `2px solid ${S.blue}`
+                    : "2px solid transparent",
+                color: inboxTab === tab ? S.blue : S.dim,
+                fontSize: "0.65rem",
+                fontWeight: 900,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                textTransform: "uppercase",
+                letterSpacing: "2px",
+              }}
+            >
+              {tab === "dms" ? "💬 DMS" : "👥 GROUPS"}
+            </button>
+          ))}
+        </div>
         {/* Search */}
         <div
           style={{
@@ -6791,7 +7344,9 @@ function DMInboxOverlay({
         >
           <input
             type="text"
-            placeholder="SEARCH MEMBERS..."
+            placeholder={
+              inboxTab === "dms" ? "SEARCH MEMBERS..." : "SEARCH GROUPS..."
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             data-ocid="dm_inbox.search_input"
@@ -6803,213 +7358,789 @@ function DMInboxOverlay({
             }}
           />
         </div>
-
-        {/* Conversation list */}
-        <div
-          className="xution-scroll"
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            minHeight: 0,
-          }}
-        >
-          {filtered.length === 0 ? (
+        {/* Conversation list / Groups */}
+        {inboxTab === "groups" ? (
+          <div
+            className="xution-scroll"
+            style={{ flex: 1, overflowY: "auto", minHeight: 0 }}
+          >
+            {/* New Group Button */}
             <div
               style={{
-                padding: "20px",
-                textAlign: "center",
-                color: S.dim,
-                fontSize: "0.65rem",
-                textTransform: "uppercase",
-                letterSpacing: "2px",
+                padding: "8px 14px",
+                borderBottom: `1px solid ${S.brd}`,
+                flexShrink: 0,
               }}
             >
-              {search ? "NO RESULTS" : "NO MEMBERS YET"}
+              <button
+                type="button"
+                data-ocid="dm_inbox.groups.button"
+                onClick={() => setShowNewGroupForm((v) => !v)}
+                style={{
+                  width: "100%",
+                  padding: "8px",
+                  background: showNewGroupForm ? S.blue : "transparent",
+                  border: `1px solid ${S.blue}`,
+                  color: showNewGroupForm ? "#000" : S.blue,
+                  fontSize: "0.7rem",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  letterSpacing: "2px",
+                }}
+              >
+                {showNewGroupForm ? "CANCEL" : "+ NEW GROUP"}
+              </button>
             </div>
-          ) : (
-            filtered.map((conv) => {
-              const db = getDB();
-              const lvl = db[conv.name]?.lvl ?? "?";
-              return (
-                <button
-                  key={conv.name}
-                  type="button"
-                  data-ocid="dm_inbox.item"
-                  onClick={() => {
-                    onOpenDM(conv.name);
-                    onClose();
-                  }}
+            {showNewGroupForm && (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  borderBottom: `1px solid ${S.brd}`,
+                  background: "#080808",
+                }}
+              >
+                <input
+                  type="text"
+                  placeholder="GROUP NAME"
+                  value={newGroupName}
+                  onChange={(e) => setNewGroupName(e.target.value)}
+                  data-ocid="dm_groups.name.input"
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    width: "100%",
-                    padding: "12px 14px",
-                    borderBottom: `1px solid ${S.brd}`,
-                    background: conv.isFav ? "#0a0800" : "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                    ...inputStyle,
+                    margin: "0 0 8px",
+                    fontSize: "0.75rem",
+                    padding: "6px 10px",
                   }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      conv.isFav ? "#151000" : "#111";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      conv.isFav ? "#0a0800" : "transparent";
+                />
+                <div
+                  style={{
+                    fontSize: "0.6rem",
+                    color: S.dim,
+                    letterSpacing: "1px",
+                    marginBottom: "6px",
                   }}
                 >
-                  {/* Avatar placeholder */}
-                  <div
-                    style={{
-                      width: "34px",
-                      height: "34px",
-                      border: `1px solid ${conv.online ? S.green : S.brd}`,
-                      background: "#111",
-                      flexShrink: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: "0.7rem",
-                      color: S.dim,
-                      position: "relative",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {(() => {
-                      const av = getAvatar(conv.name);
-                      return av ? (
-                        <img
-                          src={av}
-                          alt=""
-                          style={{
-                            width: "100%",
-                            height: "100%",
-                            objectFit: "cover",
-                          }}
-                        />
-                      ) : (
-                        <span>{conv.name[0]}</span>
-                      );
-                    })()}
-                    {/* Online dot */}
-                    <span
-                      style={{
-                        position: "absolute",
-                        bottom: "1px",
-                        right: "1px",
-                        width: "7px",
-                        height: "7px",
-                        borderRadius: "50%",
-                        background: conv.online ? S.green : "#333",
-                        border: "1px solid #0a0a0a",
-                      }}
-                    />
-                  </div>
-
-                  {/* Info */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
+                  SELECT MEMBERS:
+                </div>
+                <div
+                  style={{ maxHeight: "120px", overflowY: "auto" }}
+                  className="xution-scroll"
+                >
+                  {allMembers.map((m) => (
+                    <label
+                      key={m}
                       style={{
                         display: "flex",
                         alignItems: "center",
-                        gap: "6px",
-                        justifyContent: "space-between",
+                        gap: "8px",
+                        padding: "4px 0",
+                        cursor: "pointer",
                       }}
                     >
-                      <span
+                      <input
+                        type="checkbox"
+                        checked={newGroupMembers.includes(m)}
+                        onChange={() =>
+                          setNewGroupMembers((prev) =>
+                            prev.includes(m)
+                              ? prev.filter((x) => x !== m)
+                              : [...prev, m],
+                          )
+                        }
+                        data-ocid="dm_groups.member.checkbox"
+                      />
+                      <span style={{ color: S.white, fontSize: "0.7rem" }}>
+                        {m}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  data-ocid="dm_groups.create.button"
+                  onClick={() => {
+                    if (!newGroupName.trim()) return;
+                    const newGroup: DMGroup = {
+                      id: `grp_${Date.now()}`,
+                      name: newGroupName.trim(),
+                      creatorUsername: currentUser.name,
+                      members: [currentUser.name, ...newGroupMembers],
+                      messages: [],
+                    };
+                    const updated = [newGroup, ...dmGroups];
+                    setDmGroups(updated);
+                    setNewGroupName("");
+                    setNewGroupMembers([]);
+                    setShowNewGroupForm(false);
+                  }}
+                  style={{
+                    ...btnPrimary,
+                    marginTop: "8px",
+                    padding: "6px 12px",
+                    fontSize: "0.7rem",
+                  }}
+                >
+                  CREATE GROUP
+                </button>
+              </div>
+            )}
+            {dmGroups.filter(
+              (g) =>
+                g.members.includes(currentUser.name) &&
+                g.name.toLowerCase().includes(search.toLowerCase()),
+            ).length === 0 ? (
+              <div
+                style={{
+                  padding: "20px",
+                  textAlign: "center",
+                  color: S.dim,
+                  fontSize: "0.65rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "2px",
+                }}
+              >
+                {search ? "NO GROUPS FOUND" : "NO GROUPS YET"}
+              </div>
+            ) : (
+              dmGroups
+                .filter(
+                  (g) =>
+                    g.members.includes(currentUser.name) &&
+                    g.name.toLowerCase().includes(search.toLowerCase()),
+                )
+                .map((group) => (
+                  <div
+                    key={group.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      padding: "12px 14px",
+                      borderBottom: `1px solid ${S.brd}`,
+                    }}
+                  >
+                    {editingGroupId === group.id ? (
+                      <input
+                        type="text"
+                        value={editingGroupName}
+                        onChange={(e) => setEditingGroupName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const updated = dmGroups.map((g) =>
+                              g.id === group.id
+                                ? { ...g, name: editingGroupName }
+                                : g,
+                            );
+                            setDmGroups(updated);
+                            setEditingGroupId(null);
+                          } else if (e.key === "Escape")
+                            setEditingGroupId(null);
+                        }}
                         style={{
+                          ...inputStyle,
+                          margin: 0,
                           fontSize: "0.75rem",
-                          color: S.white,
-                          fontWeight: 900,
-                          letterSpacing: "1px",
-                          textTransform: "uppercase",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                          maxWidth: "150px",
+                          flex: 1,
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        data-ocid="dm_groups.item"
+                        onClick={() => onOpenGroup(group.id)}
+                        style={{
+                          flex: 1,
+                          background: "transparent",
+                          border: "none",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          padding: 0,
                         }}
                       >
-                        {conv.isFav ? "★ " : ""}
-                        {conv.name}
-                      </span>
+                        <div
+                          style={{
+                            color: S.white,
+                            fontSize: "0.75rem",
+                            fontWeight: 700,
+                            letterSpacing: "1px",
+                            fontFamily: "inherit",
+                          }}
+                        >
+                          👥 {group.name}
+                        </div>
+                        <div
+                          style={{
+                            color: S.dim,
+                            fontSize: "0.6rem",
+                            marginTop: "2px",
+                            letterSpacing: "1px",
+                          }}
+                        >
+                          {group.members.length} MEMBERS
+                        </div>
+                      </button>
+                    )}
+                    {group.creatorUsername === currentUser.name &&
+                      editingGroupId !== group.id && (
+                        <button
+                          type="button"
+                          data-ocid="dm_groups.edit_button"
+                          onClick={() => {
+                            setEditingGroupId(group.id);
+                            setEditingGroupName(group.name);
+                          }}
+                          title="RENAME GROUP"
+                          style={{
+                            background: "transparent",
+                            border: `1px solid ${S.gold}44`,
+                            color: S.gold,
+                            cursor: "pointer",
+                            fontSize: "0.65rem",
+                            padding: "3px 7px",
+                          }}
+                        >
+                          ✏
+                        </button>
+                      )}
+                    {editingGroupId === group.id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = dmGroups.map((g) =>
+                            g.id === group.id
+                              ? { ...g, name: editingGroupName }
+                              : g,
+                          );
+                          setDmGroups(updated);
+                          setEditingGroupId(null);
+                        }}
+                        style={{
+                          background: S.green,
+                          border: "none",
+                          color: "#000",
+                          cursor: "pointer",
+                          fontSize: "0.65rem",
+                          padding: "3px 7px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        ✓
+                      </button>
+                    )}
+                    {group.creatorUsername === currentUser.name && (
+                      <button
+                        type="button"
+                        data-ocid="dm_groups.delete_button"
+                        onClick={() => {
+                          const updated = dmGroups.filter(
+                            (g) => g.id !== group.id,
+                          );
+                          setDmGroups(updated);
+                        }}
+                        title="DELETE GROUP"
+                        style={{
+                          background: "transparent",
+                          border: `1px solid ${S.red}44`,
+                          color: S.red,
+                          cursor: "pointer",
+                          fontSize: "0.65rem",
+                          padding: "3px 7px",
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))
+            )}
+          </div>
+        ) : (
+          <div
+            className="xution-scroll"
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              minHeight: 0,
+            }}
+          >
+            {filtered.length === 0 ? (
+              <div
+                style={{
+                  padding: "20px",
+                  textAlign: "center",
+                  color: S.dim,
+                  fontSize: "0.65rem",
+                  textTransform: "uppercase",
+                  letterSpacing: "2px",
+                }}
+              >
+                {search ? "NO RESULTS" : "NO MEMBERS YET"}
+              </div>
+            ) : (
+              filtered.map((conv) => {
+                const db = getDB();
+                const lvl = db[conv.name]?.lvl ?? "?";
+                return (
+                  <button
+                    key={conv.name}
+                    type="button"
+                    data-ocid="dm_inbox.item"
+                    onClick={() => {
+                      onOpenDM(conv.name);
+                      onClose();
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderBottom: `1px solid ${S.brd}`,
+                      background: conv.isFav ? "#0a0800" : "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        conv.isFav ? "#151000" : "#111";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        conv.isFav ? "#0a0800" : "transparent";
+                    }}
+                  >
+                    {/* Avatar placeholder */}
+                    <div
+                      style={{
+                        width: "34px",
+                        height: "34px",
+                        border: `1px solid ${conv.online ? S.green : S.brd}`,
+                        background: "#111",
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "0.7rem",
+                        color: S.dim,
+                        position: "relative",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {(() => {
+                        const av = getAvatar(conv.name);
+                        return av ? (
+                          <img
+                            src={av}
+                            alt=""
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                            }}
+                          />
+                        ) : (
+                          <span>{conv.name[0]}</span>
+                        );
+                      })()}
+                      {/* Online dot */}
+                      <span
+                        style={{
+                          position: "absolute",
+                          bottom: "1px",
+                          right: "1px",
+                          width: "7px",
+                          height: "7px",
+                          borderRadius: "50%",
+                          background: conv.online ? S.green : "#333",
+                          border: "1px solid #0a0a0a",
+                        }}
+                      />
+                    </div>
+
+                    {/* Info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div
                         style={{
                           display: "flex",
                           alignItems: "center",
-                          gap: "4px",
-                          flexShrink: 0,
+                          gap: "6px",
+                          justifyContent: "space-between",
                         }}
                       >
                         <span
                           style={{
-                            fontSize: "0.5rem",
-                            color: S.dim,
+                            fontSize: "0.75rem",
+                            color: S.white,
+                            fontWeight: 900,
                             letterSpacing: "1px",
+                            textTransform: "uppercase",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            maxWidth: "150px",
                           }}
                         >
-                          L{lvl}
+                          {conv.isFav ? "★ " : ""}
+                          {conv.name}
                         </span>
-                        {conv.unread > 0 && (
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            flexShrink: 0,
+                          }}
+                        >
                           <span
                             style={{
-                              background: S.red,
-                              color: "#fff",
                               fontSize: "0.5rem",
-                              fontWeight: 900,
-                              borderRadius: "8px",
-                              padding: "1px 5px",
+                              color: S.dim,
+                              letterSpacing: "1px",
                             }}
                           >
-                            {conv.unread}
+                            L{lvl}
                           </span>
-                        )}
+                          {conv.unread > 0 && (
+                            <span
+                              style={{
+                                background: S.red,
+                                color: "#fff",
+                                fontSize: "0.5rem",
+                                fontWeight: 900,
+                                borderRadius: "8px",
+                                padding: "1px 5px",
+                              }}
+                            >
+                              {conv.unread}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "0.6rem",
+                          color: S.dim,
+                          letterSpacing: "0.5px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          marginTop: "2px",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {(() => {
+                          const msg = conv.lastMsg;
+                          if (!msg) return "NO MESSAGES YET";
+                          const prefix =
+                            msg.from === currentUser.name ? "YOU" : msg.from;
+                          if (msg.attachments?.length) {
+                            const a = msg.attachments[0];
+                            const label =
+                              a.type === "image"
+                                ? "📷 IMAGE"
+                                : a.type === "video"
+                                  ? "🎬 VIDEO"
+                                  : a.type === "audio"
+                                    ? "🎵 AUDIO"
+                                    : a.type === "file"
+                                      ? "📁 FILE"
+                                      : a.type === "gif"
+                                        ? "🌀 GIF"
+                                        : "🎤 VOICE";
+                            return `${prefix}: ${msg.text ? `${msg.text} ` : ""}${label}`;
+                          }
+                          return `${prefix}: ${msg.text}`;
+                        })()}
                       </div>
                     </div>
-                    <div
-                      style={{
-                        fontSize: "0.6rem",
-                        color: S.dim,
-                        letterSpacing: "0.5px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        marginTop: "2px",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      {(() => {
-                        const msg = conv.lastMsg;
-                        if (!msg) return "NO MESSAGES YET";
-                        const prefix =
-                          msg.from === currentUser.name ? "YOU" : msg.from;
-                        if (msg.attachments?.length) {
-                          const a = msg.attachments[0];
-                          const label =
-                            a.type === "image"
-                              ? "📷 IMAGE"
-                              : a.type === "video"
-                                ? "🎬 VIDEO"
-                                : a.type === "audio"
-                                  ? "🎵 AUDIO"
-                                  : a.type === "file"
-                                    ? "📁 FILE"
-                                    : a.type === "gif"
-                                      ? "🌀 GIF"
-                                      : "🎤 VOICE";
-                          return `${prefix}: ${msg.text ? `${msg.text} ` : ""}${label}`;
-                        }
-                        return `${prefix}: ${msg.text}`;
-                      })()}
-                    </div>
-                  </div>
-                </button>
-              );
-            })
-          )}
-        </div>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}{" "}
+        {/* end ternary groups/dms */}
+      </div>
+    </div>
+  );
+}
+
+// ─── GroupChatPanel ───────────────────────────────────────────────────────────
+
+function GroupChatPanel({
+  currentUser,
+  groupId,
+  dmGroups,
+  setDmGroups,
+  onClose,
+}: {
+  currentUser: CurrentUser;
+  groupId: string;
+  dmGroups: DMGroup[];
+  setDmGroups: (gs: DMGroup[]) => void;
+  onClose: () => void;
+}) {
+  const group = dmGroups.find((g) => g.id === groupId);
+  const [input, setInput] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [nameVal, setNameVal] = useState(group?.name ?? "");
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on message count
+  useEffect(() => {
+    if (scrollRef.current)
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [group?.messages.length]);
+
+  if (!group) return null;
+  const isCreator = group.creatorUsername === currentUser.name;
+
+  const sendMessage = () => {
+    if (!input.trim()) return;
+    const updated = dmGroups.map((g) =>
+      g.id === groupId
+        ? {
+            ...g,
+            messages: [
+              ...g.messages,
+              {
+                from: currentUser.name,
+                text: input.trim(),
+                ts: new Date().toISOString(),
+              },
+            ],
+          }
+        : g,
+    );
+    setDmGroups(updated);
+    setInput("");
+  };
+
+  const renameGroup = () => {
+    if (!nameVal.trim()) return;
+    const updated = dmGroups.map((g) =>
+      g.id === groupId ? { ...g, name: nameVal.trim() } : g,
+    );
+    setDmGroups(updated);
+    setEditingName(false);
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: "200px",
+        right: "20px",
+        width: "340px",
+        maxWidth: "calc(100vw - 40px)",
+        maxHeight: "70vh",
+        background: "#0a0a0a",
+        border: `2px solid ${S.gold}`,
+        display: "flex",
+        flexDirection: "column",
+        fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+        boxShadow: `0 0 30px ${S.gold}33`,
+        zIndex: 9850,
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "10px 14px",
+          borderBottom: `1px solid ${S.brd}`,
+          background: "#080808",
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontSize: "0.75rem" }}>👥</span>
+        {editingName ? (
+          <>
+            <input
+              type="text"
+              value={nameVal}
+              onChange={(e) => setNameVal(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") renameGroup();
+                else if (e.key === "Escape") setEditingName(false);
+              }}
+              style={{
+                ...inputStyle,
+                margin: 0,
+                fontSize: "0.75rem",
+                flex: 1,
+                padding: "4px 8px",
+              }}
+            />
+            <button
+              type="button"
+              onClick={renameGroup}
+              style={{
+                background: S.green,
+                border: "none",
+                color: "#000",
+                cursor: "pointer",
+                padding: "4px 8px",
+                fontWeight: 900,
+                fontSize: "0.7rem",
+              }}
+            >
+              ✓
+            </button>
+          </>
+        ) : (
+          <>
+            <span
+              style={{
+                color: S.gold,
+                fontSize: "0.8rem",
+                fontWeight: 900,
+                letterSpacing: "2px",
+                flex: 1,
+              }}
+            >
+              {group.name}
+            </span>
+            {isCreator && (
+              <button
+                type="button"
+                data-ocid="group_chat.edit_button"
+                onClick={() => {
+                  setEditingName(true);
+                  setNameVal(group.name);
+                }}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${S.gold}44`,
+                  color: S.gold,
+                  cursor: "pointer",
+                  fontSize: "0.65rem",
+                  padding: "2px 6px",
+                }}
+              >
+                ✏
+              </button>
+            )}
+          </>
+        )}
+        <span
+          style={{ color: S.dim, fontSize: "0.6rem", letterSpacing: "1px" }}
+        >
+          {group.members.length}M
+        </span>
+        <button
+          type="button"
+          data-ocid="group_chat.close_button"
+          onClick={onClose}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: S.dim,
+            cursor: "pointer",
+            fontSize: "0.85rem",
+            padding: "2px 6px",
+            fontWeight: 900,
+          }}
+        >
+          [X]
+        </button>
+      </div>
+
+      {/* Messages */}
+      <div
+        ref={scrollRef}
+        className="xution-scroll"
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: "10px 14px",
+          minHeight: 0,
+        }}
+      >
+        {group.messages.length === 0 ? (
+          <div
+            style={{
+              color: S.dim,
+              fontSize: "0.6rem",
+              textAlign: "center",
+              padding: "20px 0",
+              letterSpacing: "2px",
+            }}
+          >
+            NO MESSAGES YET
+          </div>
+        ) : (
+          group.messages.map((msg, i) => (
+            <div key={`${msg.ts}-${i}`} style={{ marginBottom: "8px" }}>
+              <div
+                style={{ display: "flex", alignItems: "baseline", gap: "6px" }}
+              >
+                <span
+                  style={{
+                    color: msg.from === currentUser.name ? S.gold : S.blue,
+                    fontSize: "0.6rem",
+                    fontWeight: 900,
+                  }}
+                >
+                  {msg.from}
+                </span>
+                <span style={{ color: S.dim, fontSize: "0.5rem" }}>
+                  {new Date(msg.ts).toLocaleTimeString()}
+                </span>
+              </div>
+              <div
+                style={{
+                  color: S.white,
+                  fontSize: "0.72rem",
+                  marginTop: "2px",
+                  wordBreak: "break-word",
+                }}
+              >
+                {msg.text}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Input */}
+      <div
+        style={{
+          display: "flex",
+          gap: "6px",
+          padding: "8px 14px",
+          borderTop: `1px solid ${S.brd}`,
+          flexShrink: 0,
+        }}
+      >
+        <input
+          type="text"
+          placeholder="MESSAGE GROUP..."
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+          data-ocid="group_chat.input"
+          style={{
+            ...inputStyle,
+            margin: 0,
+            flex: 1,
+            fontSize: "0.75rem",
+            padding: "8px 10px",
+          }}
+        />
+        <button
+          type="button"
+          data-ocid="group_chat.button"
+          onClick={sendMessage}
+          style={{ ...btnPrimary, padding: "8px 12px", fontSize: "0.7rem" }}
+        >
+          SEND
+        </button>
       </div>
     </div>
   );
@@ -7029,6 +8160,8 @@ export default function App() {
   const [selectedSector, setSelectedSector] = useState("SECTOR DATA");
   const [dmTarget, setDmTarget] = useState<string | null>(null);
   const [dmInboxOpen, setDmInboxOpen] = useState(false);
+  const [dmGroups, setDmGroups] = useState<DMGroup[]>(getDMGroups);
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
   // Global active office — determines which office's data is shown for all facilities
@@ -7038,6 +8171,7 @@ export default function App() {
   const [menuSnapshot, setMenuSnapshot] = useState<MenuItem[]>(getMenuItems);
   // Canister sync counter — bump to force re-render of components reading localStorage
   const [_syncTick, setSyncTick] = useState(0);
+  const [contactLink, setContactLink] = useState<string>(getContactLink);
 
   // Actor for reconnect polling
   const { actor } = useActor();
@@ -7549,7 +8683,7 @@ export default function App() {
 
       {/* Contact Pill */}
       <a
-        href="mailto:Gameloverv@gmail.com"
+        href={contactLink}
         style={{
           position: "fixed",
           bottom: "20px",
@@ -7575,7 +8709,11 @@ export default function App() {
         <button
           type="button"
           data-ocid="dm.open_modal_button"
-          onClick={() => setDmInboxOpen((v) => !v)}
+          onClick={() => {
+            setDmInboxOpen((v) => !v);
+            setDmTarget(null);
+            setActiveGroupId(null);
+          }}
           title="DIRECT MESSAGES"
           style={{
             position: "fixed",
@@ -7673,6 +8811,11 @@ export default function App() {
           onEbMsgChange={setEbMsg}
           onActivateEB={activateEB}
           onDeactivateEB={deactivateEB}
+          contactLink={contactLink}
+          onContactLinkSave={(val: string) => {
+            localStorage.setItem("x_contact_link", val);
+            setContactLink(val);
+          }}
         />
       )}
 
@@ -7684,16 +8827,41 @@ export default function App() {
           onOpenDM={(name) => {
             setDmTarget(name);
             setDmInboxOpen(false);
+            setActiveGroupId(null);
+          }}
+          onOpenGroup={(id) => {
+            setActiveGroupId(id);
+            setDmInboxOpen(false);
+            setDmTarget(null);
+          }}
+          dmGroups={dmGroups}
+          setDmGroups={(gs) => {
+            setDmGroups(gs);
+            saveDMGroups(gs);
           }}
         />
       )}
 
       {/* DM Panel */}
-      {user && dmTarget && (
+      {user && dmTarget && !dmInboxOpen && (
         <DMPanel
           currentUser={user}
           target={dmTarget}
           onClose={() => setDmTarget(null)}
+        />
+      )}
+
+      {/* Group Chat Panel */}
+      {user && activeGroupId && !dmInboxOpen && (
+        <GroupChatPanel
+          currentUser={user}
+          groupId={activeGroupId}
+          dmGroups={dmGroups}
+          setDmGroups={(gs) => {
+            setDmGroups(gs);
+            saveDMGroups(gs);
+          }}
+          onClose={() => setActiveGroupId(null)}
         />
       )}
 
@@ -8030,7 +9198,11 @@ export default function App() {
             <MemberList
               currentUser={user}
               onActivity={refreshActivities}
-              onDM={(name) => setDmTarget(name)}
+              onDM={(name) => {
+                setDmTarget(name);
+                setDmInboxOpen(false);
+                setActiveGroupId(null);
+              }}
               lockdown={lockdown}
             />
           </div>

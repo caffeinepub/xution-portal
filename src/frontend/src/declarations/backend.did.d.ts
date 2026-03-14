@@ -108,6 +108,7 @@ export interface _SERVICE {
   'updateMenuItemStock' : ActorMethod<[string, bigint], undefined>,
   'updateSectorLog' : ActorMethod<[string, string], undefined>,
   'updateUserLevel' : ActorMethod<[string, bigint], undefined>,
+  'updateUserAnswer' : ActorMethod<[string, string], undefined>,
   'userExists' : ActorMethod<[string], boolean>,
 }
 export declare const idlService: IDL.ServiceClass;

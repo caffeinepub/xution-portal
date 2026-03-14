@@ -1,45 +1,27 @@
 # XUTION Portal
 
 ## Current State
-Full-stack XUTION portal with authentication, member management, facilities, sector logs, admin posts, fund/card system, and a DM system. The DM system consists of:
-- `DMPanel`: floating chat window (text-only send, no attachments)
-- `DMInboxOverlay`: inbox list with search by member name
-- `DMMessage` type: `{ from, text, ts }`
-- No search within message history
-- No attachment support
+The Contact Command pill is a fixed `<a href="mailto:Gameloverv@gmail.com">` element with a hardcoded email address. There is no way for L6 admins to change this link.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Message search bar inside `DMPanel` — filters visible messages by keyword
-- Attachment toolbar in `DMPanel` with buttons for: image upload, file/document upload, video upload, audio upload, GIF (via URL/picker), custom emoji picker, and voice message recording
-- Rich message rendering: images inline, video inline with controls, audio player, file download link, voice message waveform/player, GIF inline, emoji display
-- `DMMessage.attachments` array: `{ type: 'image'|'video'|'audio'|'file'|'gif'|'voice', dataUrl?: string, url?: string, name?: string, mimeType?: string }`
-- Voice message recording via `MediaRecorder` API with a hold-to-record button
-- Custom emoji picker panel (a grid of Unicode emoji categories)
-- GIF input (paste URL) panel
-- Update `DMInboxOverlay` last-message preview to show attachment type label when message has no text (e.g. "📎 IMAGE", "🎤 VOICE MESSAGE")
+- A `CONTACT COMMAND` section in `AdminSettingsPanel` (for L6 only) with:
+  - A label/header styled like other admin sections.
+  - A text input pre-filled with the current contact URL/email.
+  - A save button that persists the new value to `localStorage` under key `x_contact_link`.
+- A helper `getContactLink()` that reads `localStorage.getItem('x_contact_link')` and falls back to `'mailto:Gameloverv@gmail.com'`.
 
 ### Modify
-- `DMMessage` type: add optional `attachments` field
-- `getDMs` / `addDM` helpers: update to support the new `attachments` field
-- `DMPanel` input area: replace simple text row with rich toolbar + input row
+- The Contact Pill `<a>` element's `href` should use `getContactLink()` instead of the hardcoded `mailto:Gameloverv@gmail.com`.
+- The Contact Pill should also re-render when the contact link is updated (use React state initialized from `getContactLink()` and updated on save).
 
 ### Remove
-- Nothing removed
+- Nothing removed.
 
 ## Implementation Plan
-1. Update `DMMessage` interface to include optional `attachments: DMAttachment[]`
-2. Update `getDMs`/`addDM` to pass through attachments
-3. Upgrade `DMPanel`:
-   - Add `searchQuery` state and filter messages
-   - Add search bar above message list (collapsible or always visible toggle)
-   - Replace bottom input row with a two-row layout: toolbar row + text+send row
-   - Toolbar buttons: 📎 Image, 📁 File, 🎬 Video, 🎵 Audio, 🌀 GIF, 😊 Emoji, 🎤 Voice
-   - Each opens a sub-panel or triggers a file input
-   - Voice: hold button → MediaRecorder records → release → attaches blob as dataUrl
-   - Emoji: small grid panel of common Unicode emoji
-   - GIF: text input for URL
-   - File inputs: hidden `<input type="file">` refs for each type
-   - Rich rendering for each attachment type in the message bubble
-4. Update `DMInboxOverlay` preview text to handle attachments
+1. Add `getContactLink()` helper near other `getAboutContent` helpers.
+2. Add `contactLink` state in the main `App` component, initialized from `getContactLink()`.
+3. Pass `contactLink` and a setter/callback `onContactLinkChange` to `AdminSettingsPanel`.
+4. In `AdminSettingsPanel`, add a `CONTACT COMMAND` section with an input and save button. On save, write to localStorage, call `onContactLinkChange`, and show a brief confirmation.
+5. Update the Contact Pill `href` to use `contactLink` state.

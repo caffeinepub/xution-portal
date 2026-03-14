@@ -96,5 +96,6 @@ export interface backendInterface {
     updateMenuItemStock(id: string, newStock: bigint): Promise<void>;
     updateSectorLog(id: string, newBody: string): Promise<void>;
     updateUserLevel(name: string, newLevel: bigint): Promise<void>;
+    updateUserAnswer(name: string, newAnswer: string): Promise<void>;
     userExists(name: string): Promise<boolean>;
 }
