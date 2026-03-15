@@ -2846,7 +2846,7 @@ function DMPanel({
         maxWidth: "calc(100vw - 40px)",
         background: "#0a0a0a",
         border: `2px solid ${S.gold}`,
-        zIndex: 9000,
+        zIndex: 9999,
         display: "flex",
         flexDirection: "column",
         fontFamily: "'JetBrains Mono', 'Courier New', monospace",
@@ -7889,6 +7889,34 @@ function GroupChatPanel({
   const [nameVal, setNameVal] = useState(group?.name ?? "");
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Rich features state (mirrors DMPanel)
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<
+    (DMAttachment & { _key: number })[]
+  >([]);
+  const pendingKeyRef = useRef(0);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiTab, setEmojiTab] = useState<"all" | "saved" | "custom">("all");
+  const [savedEmojis, setSavedEmojisState] = useState<string[]>(getSavedEmojis);
+  const [customEmojis, setCustomEmojisState] =
+    useState<CustomEmoji[]>(getCustomEmojis);
+  const customEmojiInputRef = useRef<HTMLInputElement>(null);
+  const [showGifPanel, setShowGifPanel] = useState(false);
+  const [gifTab, setGifTab] = useState<"add" | "saved">("add");
+  const [savedGifs, setSavedGifsState] = useState<SavedGif[]>(getSavedGifs);
+  const [gifUrl, setGifUrl] = useState("");
+  const [gifLabel, setGifLabel] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingError, setRecordingError] = useState("");
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on message count
   useEffect(() => {
     if (scrollRef.current)
@@ -7899,24 +7927,27 @@ function GroupChatPanel({
   const isCreator = group.creatorUsername === currentUser.name;
 
   const sendMessage = () => {
-    if (!input.trim()) return;
+    const text = input.trim();
+    if (!text && pendingAttachments.length === 0) return;
+    const attachmentsToSend: DMAttachment[] = pendingAttachments.map(
+      ({ _key: _k, ...rest }) => rest,
+    );
+    const newMsg: DMMessage = {
+      from: currentUser.name,
+      text,
+      ts: new Date().toISOString(),
+      ...(attachmentsToSend.length > 0
+        ? { attachments: attachmentsToSend }
+        : {}),
+    };
     const updated = dmGroups.map((g) =>
-      g.id === groupId
-        ? {
-            ...g,
-            messages: [
-              ...g.messages,
-              {
-                from: currentUser.name,
-                text: input.trim(),
-                ts: new Date().toISOString(),
-              },
-            ],
-          }
-        : g,
+      g.id === groupId ? { ...g, messages: [...g.messages, newMsg] } : g,
     );
     setDmGroups(updated);
     setInput("");
+    setPendingAttachments([]);
+    setShowEmojiPicker(false);
+    setShowGifPanel(false);
   };
 
   const renameGroup = () => {
@@ -7926,6 +7957,283 @@ function GroupChatPanel({
     );
     setDmGroups(updated);
     setEditingName(false);
+  };
+
+  const readFileAsDataUrl = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        type: "image",
+        dataUrl,
+        name: file.name,
+        mimeType: file.type,
+        _key: ++pendingKeyRef.current,
+      },
+    ]);
+    e.target.value = "";
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        type: "file",
+        dataUrl,
+        name: file.name,
+        mimeType: file.type,
+        _key: ++pendingKeyRef.current,
+      },
+    ]);
+    e.target.value = "";
+  };
+
+  const handleVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        type: "video",
+        dataUrl,
+        name: file.name,
+        mimeType: file.type,
+        _key: ++pendingKeyRef.current,
+      },
+    ]);
+    e.target.value = "";
+  };
+
+  const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl(file);
+    setPendingAttachments((prev) => [
+      ...prev,
+      {
+        type: "audio",
+        dataUrl,
+        name: file.name,
+        mimeType: file.type,
+        _key: ++pendingKeyRef.current,
+      },
+    ]);
+    e.target.value = "";
+  };
+
+  const handleAddGif = () => {
+    if (!gifUrl.trim()) return;
+    setPendingAttachments((prev) => [
+      ...prev,
+      { type: "gif", url: gifUrl.trim(), _key: ++pendingKeyRef.current },
+    ]);
+    setGifUrl("");
+    setGifLabel("");
+    setShowGifPanel(false);
+  };
+
+  const handleSaveGif = () => {
+    if (!gifUrl.trim()) return;
+    const updated = addSavedGif(
+      gifUrl.trim(),
+      gifLabel.trim() || gifUrl.trim(),
+    );
+    setSavedGifsState(updated);
+    setGifUrl("");
+    setGifLabel("");
+  };
+
+  const handleDeleteSavedGif = (url: string) => {
+    const updated = removeSavedGif(url);
+    setSavedGifsState(updated);
+  };
+
+  const handleToggleSavedEmoji = (emoji: string) => {
+    const updated = toggleSavedEmoji(emoji);
+    setSavedEmojisState(updated);
+  };
+
+  const handleEmojiClick = (emoji: string) => {
+    setInput((prev) => prev + emoji);
+  };
+
+  const startRecording = async () => {
+    setRecordingError("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setRecordingError("MIC NOT SUPPORTED");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      mr.start();
+      mediaRecorderRef.current = mr;
+      setIsRecording(true);
+    } catch {
+      setRecordingError("MIC ACCESS DENIED");
+    }
+  };
+
+  const stopRecording = () => {
+    const mr = mediaRecorderRef.current;
+    if (!mr) return;
+    mr.onstop = () => {
+      const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setPendingAttachments((prev) => [
+          ...prev,
+          {
+            type: "voice",
+            dataUrl,
+            mimeType: "audio/webm",
+            _key: ++pendingKeyRef.current,
+          },
+        ]);
+      };
+      reader.readAsDataURL(blob);
+      for (const t of mr.stream.getTracks()) t.stop();
+      mediaRecorderRef.current = null;
+    };
+    mr.stop();
+    setIsRecording(false);
+  };
+
+  const removePending = (key: number) => {
+    setPendingAttachments((prev) => prev.filter((a) => a._key !== key));
+  };
+
+  const toolbarBtnStyle: React.CSSProperties = {
+    width: "28px",
+    height: "28px",
+    background: "#111",
+    border: `1px solid ${S.brd}`,
+    color: S.dim,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "0.85rem",
+    flexShrink: 0,
+    padding: 0,
+    fontFamily: "inherit",
+  };
+
+  const displayedMessages =
+    searchOpen && searchQuery.trim()
+      ? group.messages.filter(
+          (m) =>
+            m.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            m.from.toLowerCase().includes(searchQuery.toLowerCase()),
+        )
+      : group.messages;
+
+  const renderAttachment = (att: DMAttachment, key: string) => {
+    if (att.type === "image" || att.type === "gif") {
+      const src = att.dataUrl || att.url || "";
+      return (
+        <img
+          key={key}
+          src={src}
+          alt={att.name || "image"}
+          style={{
+            maxWidth: "100%",
+            maxHeight: "180px",
+            objectFit: "contain",
+            display: "block",
+            marginTop: "4px",
+          }}
+        />
+      );
+    }
+    if (att.type === "video") {
+      return (
+        // biome-ignore lint/a11y/useMediaCaption: user-sent video in group DM
+        <video
+          key={key}
+          controls
+          src={att.dataUrl}
+          style={{
+            maxWidth: "100%",
+            maxHeight: "160px",
+            display: "block",
+            marginTop: "4px",
+          }}
+        />
+      );
+    }
+    if (att.type === "audio") {
+      return (
+        // biome-ignore lint/a11y/useMediaCaption: user-sent audio in group DM
+        <audio
+          key={key}
+          controls
+          src={att.dataUrl}
+          style={{ width: "100%", marginTop: "4px" }}
+        />
+      );
+    }
+    if (att.type === "voice") {
+      return (
+        <div key={key} style={{ marginTop: "4px" }}>
+          <div
+            style={{
+              fontSize: "0.55rem",
+              color: S.blue,
+              marginBottom: "2px",
+              letterSpacing: "1px",
+            }}
+          >
+            🎤 VOICE MSG
+          </div>
+          {/* biome-ignore lint/a11y/useMediaCaption: user-sent voice message in group DM */}
+          <audio controls src={att.dataUrl} style={{ width: "100%" }} />
+        </div>
+      );
+    }
+    if (att.type === "file") {
+      return (
+        <a
+          key={key}
+          href={att.dataUrl}
+          download={att.name || "file"}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            color: S.blue,
+            fontSize: "0.65rem",
+            marginTop: "4px",
+            textDecoration: "none",
+            fontWeight: 900,
+            letterSpacing: "1px",
+          }}
+        >
+          📁 {att.name || "FILE"}
+        </a>
+      );
+    }
+    return null;
   };
 
   return (
@@ -7946,93 +8254,175 @@ function GroupChatPanel({
         zIndex: 9850,
       }}
     >
+      {/* Hidden file inputs */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handleImageUpload}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.doc,.docx,.txt,.csv,.xlsx,.zip"
+        style={{ display: "none" }}
+        onChange={handleFileUpload}
+      />
+      <input
+        ref={videoInputRef}
+        type="file"
+        accept="video/*"
+        style={{ display: "none" }}
+        onChange={handleVideoUpload}
+      />
+      <input
+        ref={audioInputRef}
+        type="file"
+        accept="audio/*"
+        style={{ display: "none" }}
+        onChange={handleAudioUpload}
+      />
+
       {/* Header */}
       <div
         style={{
           display: "flex",
+          justifyContent: "space-between",
           alignItems: "center",
-          gap: "8px",
-          padding: "10px 14px",
+          padding: "10px 12px",
           borderBottom: `1px solid ${S.brd}`,
           background: "#080808",
           flexShrink: 0,
         }}
       >
-        <span style={{ fontSize: "0.75rem" }}>👥</span>
-        {editingName ? (
-          <>
-            <input
-              type="text"
-              value={nameVal}
-              onChange={(e) => setNameVal(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") renameGroup();
-                else if (e.key === "Escape") setEditingName(false);
-              }}
-              style={{
-                ...inputStyle,
-                margin: 0,
-                fontSize: "0.75rem",
-                flex: 1,
-                padding: "4px 8px",
-              }}
-            />
-            <button
-              type="button"
-              onClick={renameGroup}
-              style={{
-                background: S.green,
-                border: "none",
-                color: "#000",
-                cursor: "pointer",
-                padding: "4px 8px",
-                fontWeight: 900,
-                fontSize: "0.7rem",
-              }}
-            >
-              ✓
-            </button>
-          </>
-        ) : (
-          <>
-            <span
-              style={{
-                color: S.gold,
-                fontSize: "0.8rem",
-                fontWeight: 900,
-                letterSpacing: "2px",
-                flex: 1,
-              }}
-            >
-              {group.name}
-            </span>
-            {isCreator && (
-              <button
-                type="button"
-                data-ocid="group_chat.edit_button"
-                onClick={() => {
-                  setEditingName(true);
-                  setNameVal(group.name);
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+          }}
+        >
+          <span style={{ fontSize: "0.75rem" }}>👥</span>
+          {editingName ? (
+            <>
+              <input
+                type="text"
+                value={nameVal}
+                onChange={(e) => setNameVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") renameGroup();
+                  else if (e.key === "Escape") setEditingName(false);
                 }}
                 style={{
-                  background: "transparent",
-                  border: `1px solid ${S.gold}44`,
-                  color: S.gold,
+                  ...inputStyle,
+                  margin: 0,
+                  flex: 1,
+                  fontSize: "0.7rem",
+                  padding: "3px 6px",
+                }}
+                data-ocid="group_chat.input"
+              />
+              <button
+                type="button"
+                onClick={renameGroup}
+                data-ocid="group_chat.save_button"
+                style={{
+                  background: S.gold,
+                  border: "none",
+                  color: "#000",
                   cursor: "pointer",
-                  fontSize: "0.65rem",
-                  padding: "2px 6px",
+                  fontFamily: "inherit",
+                  fontWeight: 900,
+                  fontSize: "0.6rem",
+                  padding: "3px 7px",
+                  textTransform: "uppercase",
+                  flexShrink: 0,
                 }}
               >
-                ✏
+                OK
               </button>
-            )}
-          </>
-        )}
-        <span
-          style={{ color: S.dim, fontSize: "0.6rem", letterSpacing: "1px" }}
+              <button
+                type="button"
+                onClick={() => setEditingName(false)}
+                data-ocid="group_chat.cancel_button"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: S.dim,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  fontWeight: 900,
+                  fontSize: "0.6rem",
+                  padding: "3px 6px",
+                  flexShrink: 0,
+                }}
+              >
+                ✕
+              </button>
+            </>
+          ) : (
+            <>
+              <span
+                style={{
+                  color: S.gold,
+                  fontSize: "0.75rem",
+                  fontWeight: 900,
+                  letterSpacing: "1.5px",
+                  textTransform: "uppercase",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {group.name}
+              </span>
+              <span style={{ fontSize: "0.5rem", color: S.dim, flexShrink: 0 }}>
+                {group.members.length} MEMBERS
+              </span>
+            </>
+          )}
+        </div>
+        {/* Search toggle */}
+        <button
+          type="button"
+          title="SEARCH MESSAGES"
+          onClick={() => {
+            setSearchOpen((o) => !o);
+            setSearchQuery("");
+          }}
+          style={{
+            ...toolbarBtnStyle,
+            background: searchOpen ? "#1a1500" : "#111",
+            color: searchOpen ? S.gold : S.dim,
+            border: "none",
+            marginRight: "2px",
+          }}
         >
-          {group.members.length}M
-        </span>
+          🔍
+        </button>
+        {isCreator && !editingName && (
+          <button
+            type="button"
+            data-ocid="group_chat.edit_button"
+            onClick={() => setEditingName(true)}
+            style={{
+              background: "transparent",
+              border: "none",
+              cursor: "pointer",
+              padding: "2px 6px",
+              color: S.dim,
+              fontSize: "0.7rem",
+              flexShrink: 0,
+            }}
+            title="RENAME GROUP"
+          >
+            ✏️
+          </button>
+        )}
         <button
           type="button"
           data-ocid="group_chat.close_button"
@@ -8042,105 +8432,943 @@ function GroupChatPanel({
             border: "none",
             color: S.dim,
             cursor: "pointer",
+            fontFamily: "inherit",
+            fontWeight: 900,
             fontSize: "0.85rem",
             padding: "2px 6px",
-            fontWeight: 900,
+            textTransform: "uppercase",
+            flexShrink: 0,
           }}
         >
           [X]
         </button>
       </div>
 
-      {/* Messages */}
+      {/* Search bar */}
+      {searchOpen && (
+        <div
+          style={{
+            padding: "6px 10px",
+            borderBottom: `1px solid ${S.brd}`,
+            background: "#080808",
+            flexShrink: 0,
+          }}
+        >
+          <input
+            type="text"
+            placeholder="SEARCH MESSAGES..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              ...inputStyle,
+              margin: 0,
+              fontSize: "0.7rem",
+              padding: "6px 8px",
+            }}
+          />
+        </div>
+      )}
+
+      {/* Message history */}
       <div
         ref={scrollRef}
         className="xution-scroll"
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "10px 14px",
+          padding: "10px 12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "6px",
           minHeight: 0,
+          maxHeight: "280px",
         }}
       >
-        {group.messages.length === 0 ? (
+        {displayedMessages.length === 0 ? (
           <div
             style={{
               color: S.dim,
-              fontSize: "0.6rem",
+              fontSize: "0.65rem",
               textAlign: "center",
               padding: "20px 0",
-              letterSpacing: "2px",
+              textTransform: "uppercase",
             }}
           >
-            NO MESSAGES YET
+            {searchOpen && searchQuery ? "NO RESULTS" : "NO MESSAGES YET"}
           </div>
         ) : (
-          group.messages.map((msg, i) => (
-            <div key={`${msg.ts}-${i}`} style={{ marginBottom: "8px" }}>
+          displayedMessages.map((msg, i) => {
+            const isOwn = msg.from === currentUser.name;
+            return (
               <div
-                style={{ display: "flex", alignItems: "baseline", gap: "6px" }}
+                key={`grp-${msg.ts}-${i}`}
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: isOwn ? "flex-end" : "flex-start",
+                }}
               >
-                <span
+                <div
                   style={{
-                    color: msg.from === currentUser.name ? S.gold : S.blue,
                     fontSize: "0.6rem",
-                    fontWeight: 900,
+                    color: S.dim,
+                    marginBottom: "2px",
+                    textTransform: "uppercase",
                   }}
                 >
                   {msg.from}
-                </span>
-                <span style={{ color: S.dim, fontSize: "0.5rem" }}>
-                  {new Date(msg.ts).toLocaleTimeString()}
-                </span>
+                </div>
+                <div
+                  style={{
+                    fontSize: "0.7rem",
+                    color: isOwn ? S.gold : S.white,
+                    background: isOwn ? "#1a1500" : "#111",
+                    padding: "5px 8px",
+                    maxWidth: "90%",
+                    wordBreak: "break-word",
+                    textTransform: "uppercase",
+                    fontWeight: 900,
+                    border: isOwn
+                      ? `1px solid ${S.gold}33`
+                      : `1px solid ${S.brd}`,
+                  }}
+                >
+                  {msg.text && <span>{msg.text}</span>}
+                  {msg.attachments?.map((att, ai) =>
+                    renderAttachment(att, `att-${i}-${ai}`),
+                  )}
+                </div>
               </div>
-              <div
-                style={{
-                  color: S.white,
-                  fontSize: "0.72rem",
-                  marginTop: "2px",
-                  wordBreak: "break-word",
-                }}
-              >
-                {msg.text}
-              </div>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
 
-      {/* Input */}
-      <div
-        style={{
-          display: "flex",
-          gap: "6px",
-          padding: "8px 14px",
-          borderTop: `1px solid ${S.brd}`,
-          flexShrink: 0,
-        }}
-      >
-        <input
-          type="text"
-          placeholder="MESSAGE GROUP..."
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          data-ocid="group_chat.input"
+      {/* Input area */}
+      <div style={{ borderTop: `1px solid ${S.brd}`, flexShrink: 0 }}>
+        {/* Pending attachments preview */}
+        {pendingAttachments.length > 0 && (
+          <div
+            style={{
+              padding: "6px 10px",
+              borderBottom: `1px solid ${S.brd}`,
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "5px",
+            }}
+          >
+            {pendingAttachments.map((att) => (
+              <div
+                key={att._key}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "3px",
+                  border: `1px solid ${S.gold}55`,
+                  background: "#0a0800",
+                  padding: "3px 6px",
+                  fontSize: "0.6rem",
+                  color: S.gold,
+                  letterSpacing: "0.5px",
+                }}
+              >
+                {att.type === "image" && att.dataUrl && (
+                  <img
+                    src={att.dataUrl}
+                    alt=""
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      objectFit: "cover",
+                    }}
+                  />
+                )}
+                {att.type === "gif" && (
+                  <img
+                    src={att.url}
+                    alt="gif"
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      objectFit: "cover",
+                    }}
+                  />
+                )}
+                {att.type === "video" && <span>🎬</span>}
+                {att.type === "audio" && <span>🎵</span>}
+                {att.type === "voice" && <span>🎤</span>}
+                {att.type === "file" && <span>📁</span>}
+                <span
+                  style={{
+                    maxWidth: "60px",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {att.name || att.type.toUpperCase()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removePending(att._key)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: S.red,
+                    cursor: "pointer",
+                    padding: "0 2px",
+                    fontSize: "0.7rem",
+                    lineHeight: 1,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* GIF panel */}
+        {showGifPanel && (
+          <div
+            style={{
+              borderBottom: `1px solid ${S.brd}`,
+              background: "#080808",
+            }}
+          >
+            <div
+              style={{ display: "flex", borderBottom: `1px solid ${S.brd}` }}
+            >
+              {(["add", "saved"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setGifTab(tab)}
+                  style={{
+                    flex: 1,
+                    padding: "5px",
+                    background: "transparent",
+                    border: "none",
+                    borderBottom:
+                      gifTab === tab
+                        ? `2px solid ${S.gold}`
+                        : "2px solid transparent",
+                    color: gifTab === tab ? S.gold : S.dim,
+                    fontSize: "0.6rem",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  {tab === "add" ? "ADD GIF" : `SAVED (${savedGifs.length})`}
+                </button>
+              ))}
+            </div>
+            {gifTab === "add" && (
+              <div
+                style={{
+                  padding: "6px 10px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "4px",
+                }}
+              >
+                <input
+                  type="text"
+                  placeholder="PASTE GIF URL..."
+                  value={gifUrl}
+                  onChange={(e) => setGifUrl(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddGif()}
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    fontSize: "0.65rem",
+                    padding: "5px 7px",
+                  }}
+                />
+                <input
+                  type="text"
+                  placeholder="LABEL (OPTIONAL)..."
+                  value={gifLabel}
+                  onChange={(e) => setGifLabel(e.target.value)}
+                  style={{
+                    ...inputStyle,
+                    margin: 0,
+                    fontSize: "0.65rem",
+                    padding: "5px 7px",
+                  }}
+                />
+                <div style={{ display: "flex", gap: "5px" }}>
+                  <button
+                    type="button"
+                    onClick={handleAddGif}
+                    style={{
+                      flex: 1,
+                      background: S.gold,
+                      color: "#000",
+                      border: "none",
+                      padding: "5px",
+                      fontWeight: 900,
+                      cursor: "pointer",
+                      fontSize: "0.65rem",
+                      letterSpacing: "1px",
+                      fontFamily: "inherit",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    SEND
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveGif}
+                    style={{
+                      flex: 1,
+                      background: "#1a1500",
+                      color: S.gold,
+                      border: `1px solid ${S.gold}55`,
+                      padding: "5px",
+                      fontWeight: 900,
+                      cursor: "pointer",
+                      fontSize: "0.65rem",
+                      letterSpacing: "1px",
+                      fontFamily: "inherit",
+                      textTransform: "uppercase",
+                    }}
+                  >
+                    SAVE
+                  </button>
+                </div>
+              </div>
+            )}
+            {gifTab === "saved" && (
+              <div
+                className="xution-scroll"
+                style={{
+                  maxHeight: "160px",
+                  overflowY: "auto",
+                  padding: "6px 10px",
+                }}
+              >
+                {savedGifs.length === 0 ? (
+                  <div
+                    style={{
+                      color: S.dim,
+                      fontSize: "0.6rem",
+                      textAlign: "center",
+                      padding: "12px 0",
+                      letterSpacing: "1px",
+                    }}
+                  >
+                    NO SAVED GIFS
+                  </div>
+                ) : (
+                  savedGifs.map((gif) => (
+                    <div
+                      key={gif.url}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        padding: "4px 0",
+                        borderBottom: `1px solid ${S.brd}`,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingAttachments((prev) => [
+                            ...prev,
+                            {
+                              type: "gif",
+                              url: gif.url,
+                              _key: ++pendingKeyRef.current,
+                            },
+                          ]);
+                          setShowGifPanel(false);
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "6px",
+                          flex: 1,
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          padding: 0,
+                          minWidth: 0,
+                        }}
+                      >
+                        <img
+                          src={gif.url}
+                          alt={gif.label}
+                          style={{
+                            width: "40px",
+                            height: "40px",
+                            objectFit: "cover",
+                            flexShrink: 0,
+                          }}
+                        />
+                        <span
+                          style={{
+                            flex: 1,
+                            fontSize: "0.6rem",
+                            color: S.white,
+                            letterSpacing: "0.5px",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            textAlign: "left",
+                          }}
+                        >
+                          {gif.label}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSavedGif(gif.url)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: S.red,
+                          cursor: "pointer",
+                          fontSize: "0.7rem",
+                          padding: "2px 4px",
+                          flexShrink: 0,
+                        }}
+                        title="DELETE"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Emoji picker */}
+        {showEmojiPicker && (
+          <div
+            style={{
+              borderBottom: `1px solid ${S.brd}`,
+              background: "#080808",
+            }}
+          >
+            <div
+              style={{ display: "flex", borderBottom: `1px solid ${S.brd}` }}
+            >
+              {(["all", "saved", "custom"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setEmojiTab(tab)}
+                  style={{
+                    flex: 1,
+                    padding: "5px",
+                    background: "transparent",
+                    border: "none",
+                    borderBottom:
+                      emojiTab === tab
+                        ? `2px solid ${S.gold}`
+                        : "2px solid transparent",
+                    color: emojiTab === tab ? S.gold : S.dim,
+                    fontSize: "0.6rem",
+                    fontWeight: 900,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                    textTransform: "uppercase",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  {tab === "all"
+                    ? "ALL"
+                    : tab === "saved"
+                      ? `SAVED (${savedEmojis.length})`
+                      : `CUSTOM (${customEmojis.length})`}
+                </button>
+              ))}
+            </div>
+            <div
+              className="xution-scroll"
+              style={{
+                padding: "6px 10px",
+                maxHeight: "130px",
+                overflowY: "auto",
+              }}
+            >
+              {emojiTab === "custom" ? (
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "6px",
+                      padding: "6px 0 8px",
+                    }}
+                  >
+                    <input
+                      ref={customEmojiInputRef}
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const dataUrl = reader.result as string;
+                          const name =
+                            file.name.replace(/\.[^.]+$/, "") || "emoji";
+                          const newEmoji: CustomEmoji = {
+                            id: `ce_${Date.now()}`,
+                            name,
+                            dataUrl,
+                          };
+                          const updated = [...customEmojis, newEmoji];
+                          saveCustomEmojis(updated);
+                          setCustomEmojisState(updated);
+                        };
+                        reader.readAsDataURL(file);
+                        e.target.value = "";
+                      }}
+                    />
+                    <button
+                      type="button"
+                      data-ocid="group_chat.upload_button"
+                      onClick={() => customEmojiInputRef.current?.click()}
+                      style={{
+                        background: S.gold,
+                        border: "none",
+                        color: "#000",
+                        cursor: "pointer",
+                        fontSize: "0.65rem",
+                        fontWeight: 900,
+                        padding: "4px 10px",
+                        fontFamily: "inherit",
+                        letterSpacing: "1px",
+                        flex: 1,
+                      }}
+                    >
+                      + UPLOAD EMOJI
+                    </button>
+                  </div>
+                  {customEmojis.length === 0 ? (
+                    <div
+                      style={{
+                        color: S.dim,
+                        fontSize: "0.6rem",
+                        textAlign: "center",
+                        padding: "8px 0",
+                        letterSpacing: "1px",
+                      }}
+                    >
+                      NO CUSTOM EMOJIS YET
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(5, 1fr)",
+                        gap: "4px",
+                      }}
+                    >
+                      {customEmojis.map((ce) => (
+                        <div key={ce.id} style={{ position: "relative" }}>
+                          <button
+                            type="button"
+                            title={ce.name}
+                            onClick={() => {
+                              setPendingAttachments((prev) => [
+                                ...prev,
+                                {
+                                  _key: pendingKeyRef.current++,
+                                  type: "image" as const,
+                                  dataUrl: ce.dataUrl,
+                                  name: ce.name,
+                                },
+                              ]);
+                              setShowEmojiPicker(false);
+                            }}
+                            style={{
+                              background: "transparent",
+                              border: "1px solid #333",
+                              cursor: "pointer",
+                              padding: "2px",
+                              width: "100%",
+                              aspectRatio: "1",
+                            }}
+                          >
+                            <img
+                              src={ce.dataUrl}
+                              alt={ce.name}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "contain",
+                              }}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = customEmojis.filter(
+                                (x) => x.id !== ce.id,
+                              );
+                              saveCustomEmojis(updated);
+                              setCustomEmojisState(updated);
+                            }}
+                            style={{
+                              position: "absolute",
+                              top: "-3px",
+                              right: "-3px",
+                              background: S.red,
+                              border: "none",
+                              color: "#fff",
+                              fontSize: "0.45rem",
+                              width: "12px",
+                              height: "12px",
+                              borderRadius: "50%",
+                              cursor: "pointer",
+                              padding: 0,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : emojiTab === "saved" && savedEmojis.length === 0 ? (
+                <div
+                  style={{
+                    color: S.dim,
+                    fontSize: "0.6rem",
+                    textAlign: "center",
+                    padding: "12px 0",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  NO SAVED EMOJIS — HOLD ANY EMOJI TO SAVE
+                </div>
+              ) : (
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(6, 1fr)",
+                    gap: "3px",
+                  }}
+                >
+                  {(emojiTab === "all" ? EMOJI_LIST : savedEmojis).map(
+                    (emoji) => {
+                      const isSaved = savedEmojis.includes(emoji);
+                      return (
+                        <div key={emoji} style={{ position: "relative" }}>
+                          <button
+                            type="button"
+                            onClick={() => handleEmojiClick(emoji)}
+                            onContextMenu={(e) => {
+                              e.preventDefault();
+                              handleToggleSavedEmoji(emoji);
+                            }}
+                            title={
+                              isSaved
+                                ? "Right-click to unsave"
+                                : "Right-click to save"
+                            }
+                            style={{
+                              background: isSaved ? "#1a1500" : "transparent",
+                              border: isSaved
+                                ? `1px solid ${S.gold}33`
+                                : "none",
+                              cursor: "pointer",
+                              fontSize: "1.1rem",
+                              padding: "3px",
+                              textAlign: "center",
+                              borderRadius: "3px",
+                              width: "100%",
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSaved)
+                                (
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.background = "#222";
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSaved)
+                                (
+                                  e.currentTarget as HTMLButtonElement
+                                ).style.background = "transparent";
+                            }}
+                          >
+                            {emoji}
+                          </button>
+                          {isSaved && emojiTab === "saved" && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSavedEmoji(emoji)}
+                              style={{
+                                position: "absolute",
+                                top: "-3px",
+                                right: "-3px",
+                                background: S.red,
+                                border: "none",
+                                color: "#fff",
+                                fontSize: "0.45rem",
+                                width: "12px",
+                                height: "12px",
+                                borderRadius: "50%",
+                                cursor: "pointer",
+                                padding: 0,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                lineHeight: 1,
+                              }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      );
+                    },
+                  )}
+                </div>
+              )}
+            </div>
+            {emojiTab === "all" && (
+              <div
+                style={{
+                  padding: "3px 10px 5px",
+                  fontSize: "0.5rem",
+                  color: S.dim,
+                  letterSpacing: "0.5px",
+                }}
+              >
+                RIGHT-CLICK ANY EMOJI TO SAVE/UNSAVE IT
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Recording indicator */}
+        {isRecording && (
+          <div
+            style={{
+              padding: "5px 10px",
+              background: "#1a0000",
+              borderBottom: `1px solid ${S.red}`,
+              fontSize: "0.6rem",
+              color: S.red,
+              letterSpacing: "2px",
+              fontWeight: 900,
+            }}
+          >
+            ● RECORDING...
+          </div>
+        )}
+        {recordingError && (
+          <div
+            style={{
+              padding: "4px 10px",
+              background: "#1a0000",
+              borderBottom: `1px solid ${S.red}`,
+              fontSize: "0.55rem",
+              color: S.red,
+              letterSpacing: "1px",
+            }}
+          >
+            {recordingError}
+          </div>
+        )}
+
+        {/* Attachment toolbar */}
+        <div
           style={{
-            ...inputStyle,
-            margin: 0,
-            flex: 1,
-            fontSize: "0.75rem",
-            padding: "8px 10px",
+            display: "flex",
+            gap: "4px",
+            padding: "6px 10px",
+            borderBottom: `1px solid ${S.brd}`,
+            overflowX: "auto",
+            background: "#060606",
+            flexShrink: 0,
           }}
-        />
-        <button
-          type="button"
-          data-ocid="group_chat.button"
-          onClick={sendMessage}
-          style={{ ...btnPrimary, padding: "8px 12px", fontSize: "0.7rem" }}
         >
-          SEND
-        </button>
+          <button
+            type="button"
+            title="IMAGE"
+            onClick={() => imageInputRef.current?.click()}
+            style={toolbarBtnStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            📷
+          </button>
+          <button
+            type="button"
+            title="FILE"
+            onClick={() => fileInputRef.current?.click()}
+            style={toolbarBtnStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            📁
+          </button>
+          <button
+            type="button"
+            title="VIDEO"
+            onClick={() => videoInputRef.current?.click()}
+            style={toolbarBtnStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            🎬
+          </button>
+          <button
+            type="button"
+            title="AUDIO"
+            onClick={() => audioInputRef.current?.click()}
+            style={toolbarBtnStyle}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            🎵
+          </button>
+          <button
+            type="button"
+            title="GIF"
+            onClick={() => {
+              setShowGifPanel((o) => !o);
+              setShowEmojiPicker(false);
+            }}
+            style={{
+              ...toolbarBtnStyle,
+              ...(showGifPanel ? { background: "#1a1500", color: S.gold } : {}),
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              if (!showGifPanel)
+                (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            🌀
+          </button>
+          <button
+            type="button"
+            title="EMOJI"
+            onClick={() => {
+              setShowEmojiPicker((o) => !o);
+              setShowGifPanel(false);
+            }}
+            style={{
+              ...toolbarBtnStyle,
+              ...(showEmojiPicker
+                ? { background: "#1a1500", color: S.gold }
+                : {}),
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              if (!showEmojiPicker)
+                (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            😊
+          </button>
+          <button
+            type="button"
+            title="HOLD TO RECORD VOICE"
+            onMouseDown={startRecording}
+            onMouseUp={stopRecording}
+            onTouchStart={startRecording}
+            onTouchEnd={stopRecording}
+            style={{
+              ...toolbarBtnStyle,
+              ...(isRecording
+                ? {
+                    background: "#1a0000",
+                    color: S.red,
+                    border: `1px solid ${S.red}`,
+                  }
+                : {}),
+            }}
+            onMouseEnter={(e) => {
+              if (!isRecording)
+                (e.currentTarget as HTMLButtonElement).style.color = S.gold;
+            }}
+            onMouseLeave={(e) => {
+              if (!isRecording)
+                (e.currentTarget as HTMLButtonElement).style.color = S.dim;
+            }}
+          >
+            🎤
+          </button>
+        </div>
+
+        {/* Text input + send */}
+        <div style={{ display: "flex", gap: 0 }}>
+          <input
+            type="text"
+            placeholder="MESSAGE GROUP..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+            data-ocid="group_chat.input"
+            style={{
+              ...inputStyle,
+              margin: 0,
+              flex: 1,
+              fontSize: "0.75rem",
+              padding: "10px",
+              border: "none",
+              borderRight: `1px solid ${S.brd}`,
+            }}
+          />
+          <button
+            type="button"
+            data-ocid="group_chat.primary_button"
+            onClick={sendMessage}
+            style={{
+              background: S.gold,
+              color: "#000",
+              border: "none",
+              padding: "10px 14px",
+              fontWeight: 900,
+              cursor: "pointer",
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontSize: "0.7rem",
+              textTransform: "uppercase",
+              letterSpacing: "1px",
+              flexShrink: 0,
+            }}
+          >
+            SEND
+          </button>
+        </div>
       </div>
     </div>
   );
