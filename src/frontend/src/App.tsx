@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useActor } from "./hooks/useActor";
+import { useQRScanner } from "./qr-code/useQRScanner";
 // backend types are used via useActor() hook
 
 // ─── Canister type helpers ────────────────────────────────────────────────────
@@ -24,6 +25,14 @@ interface UserDB {
   [name: string]: UserRecord;
 }
 
+interface LogAttachment {
+  type: "image" | "video" | "audio" | "file" | "gif";
+  url?: string;
+  dataUrl?: string;
+  name?: string;
+  mimeType?: string;
+}
+
 interface SectorLog {
   id?: string;
   sector: string;
@@ -32,6 +41,7 @@ interface SectorLog {
   author: string;
   level: number;
   date: string;
+  attachments?: LogAttachment[];
 }
 
 interface AdminPost {
@@ -41,6 +51,7 @@ interface AdminPost {
   minLvl: number;
   date: string;
   sector?: string;
+  attachments?: LogAttachment[];
 }
 
 interface CurrentUser {
@@ -102,6 +113,7 @@ interface MenuItem {
 
 const IMMUNE = ["UNITY", "SYNDELIOUS"];
 
+// biome-ignore lint/correctness/noUnusedVariables: kept for reference
 const FACILITIES = [
   { id: "Jail", icon: "⛓️", d: "Containment for unauthorized entities." },
   { id: "Laboratory", icon: "🧪", d: "Primal alchemy and energy synthesis." },
@@ -347,6 +359,104 @@ function getOfficeLocations(): OfficeLocation[] {
 
 function setOfficeLocations(locations: OfficeLocation[]): void {
   localStorage.setItem("x_office_locations_v1", JSON.stringify(locations));
+}
+
+// ─── Per-office facility helpers ──────────────────────────────────────────────
+
+interface OfficeFacility {
+  id: string;
+  name: string;
+  icon: string;
+  desc: string;
+  logoUrl?: string;
+}
+
+const DEFAULT_OFFICE_FACILITIES: OfficeFacility[] = [
+  {
+    id: "Jail",
+    icon: "⛓️",
+    name: "Jail",
+    desc: "Containment for unauthorized entities.",
+  },
+  {
+    id: "Laboratory",
+    icon: "🧪",
+    name: "Laboratory",
+    desc: "Primal alchemy and energy synthesis.",
+  },
+  {
+    id: "Med Bay",
+    icon: "⚕️",
+    name: "Med Bay",
+    desc: "Biological restoration.",
+  },
+  { id: "Bar", icon: "🍷", name: "Bar", desc: "Social decompression." },
+  {
+    id: "Restaurant",
+    icon: "🍱",
+    name: "Restaurant",
+    desc: "High-tier nutritional sustenance.",
+  },
+  { id: "School", icon: "🎓", name: "School", desc: "Knowledge transfer." },
+  {
+    id: "Supply Drop",
+    icon: "📦",
+    name: "Supply Drop",
+    desc: "External resource acquisition.",
+  },
+  {
+    id: "Gift Shop",
+    icon: "🎁",
+    name: "Gift Shop",
+    desc: "Sovereign artifacts.",
+  },
+  { id: "Flight Area", icon: "🚁", name: "Flight Area", desc: "Transit hub." },
+  {
+    id: "Training Area",
+    icon: "⚔️",
+    name: "Training Area",
+    desc: "Combat simulation.",
+  },
+  {
+    id: "Greenhouse",
+    icon: "🌿",
+    name: "Greenhouse",
+    desc: "Resource cultivation.",
+  },
+  {
+    id: "Surveillance",
+    icon: "👁️",
+    name: "Surveillance",
+    desc: "Visibility monitoring.",
+  },
+  { id: "Offices", icon: "🏢", name: "Offices", desc: "Command nexus." },
+  {
+    id: "Tech Area",
+    icon: "💻",
+    name: "Tech Area",
+    desc: "Mainframe encryption.",
+  },
+  { id: "Dorms", icon: "🛌", name: "Dorms", desc: "Residential quarters." },
+];
+
+function getOfficeFacilitiesKey(officeId: string): string {
+  return `x_office_facilities_${officeId}`;
+}
+
+function getOfficeFacilities(officeId: string): OfficeFacility[] {
+  const stored = localStorage.getItem(getOfficeFacilitiesKey(officeId));
+  if (stored) return JSON.parse(stored) as OfficeFacility[];
+  return [...DEFAULT_OFFICE_FACILITIES];
+}
+
+function saveOfficeFacilities(
+  officeId: string,
+  facilities: OfficeFacility[],
+): void {
+  localStorage.setItem(
+    getOfficeFacilitiesKey(officeId),
+    JSON.stringify(facilities),
+  );
 }
 
 function getOfficeFavsKey(me: string): string {
@@ -1777,6 +1887,192 @@ function GlobalTransactionHistory() {
 
 // ─── AuthScreen ───────────────────────────────────────────────────────────────
 
+// ─── QR Login Scanner ────────────────────────────────────────────────────────
+
+function QRLoginScanner({ onScan }: { onScan: (username: string) => void }) {
+  const scanner = useQRScanner({ facingMode: "environment" });
+  const [manualValue, setManualValue] = React.useState("");
+  const [scanned, setScanned] = React.useState(false);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run once on mount
+  React.useEffect(() => {
+    scanner.startScanning();
+    return () => {
+      scanner.stopScanning();
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  React.useEffect(() => {
+    if (scanner.qrResults.length > 0 && !scanned) {
+      const raw = scanner.qrResults[0].data;
+      setScanned(true);
+      scanner.stopScanning();
+      try {
+        const parsed = JSON.parse(raw);
+        if (parsed.username) {
+          onScan(parsed.username.toUpperCase());
+          return;
+        }
+      } catch {}
+      onScan(raw.trim().toUpperCase());
+    }
+  }, [scanner.qrResults, scanner.stopScanning, scanned, onScan]);
+
+  const handleManual = () => {
+    const u = manualValue.trim();
+    if (!u) return;
+    try {
+      const parsed = JSON.parse(u);
+      if (parsed.username) {
+        onScan(parsed.username.toUpperCase());
+        return;
+      }
+    } catch {}
+    onScan(u.toUpperCase());
+  };
+
+  return (
+    <div
+      style={{
+        background: "#080808",
+        border: "1px solid #00cfff",
+        padding: "12px",
+        marginTop: "8px",
+      }}
+    >
+      {scanner.isSupported === false ? (
+        <p
+          style={{
+            color: "#ff4444",
+            fontSize: "0.65rem",
+            letterSpacing: "1px",
+            textAlign: "center",
+          }}
+        >
+          ⚠ CAMERA NOT SUPPORTED ON THIS DEVICE
+        </p>
+      ) : scanner.error ? (
+        <p
+          style={{
+            color: "#ff4444",
+            fontSize: "0.65rem",
+            letterSpacing: "1px",
+            textAlign: "center",
+          }}
+        >
+          ⚠ {String(scanner.error)}
+        </p>
+      ) : scanner.isLoading ? (
+        <p
+          style={{
+            color: "#888",
+            fontSize: "0.65rem",
+            letterSpacing: "2px",
+            textAlign: "center",
+            padding: "20px 0",
+          }}
+        >
+          INITIALIZING CAMERA...
+        </p>
+      ) : null}
+      {scanner.isSupported !== false && (
+        <div
+          style={{ position: "relative", width: "100%", marginBottom: "10px" }}
+        >
+          <video
+            ref={scanner.videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              width: "100%",
+              height: "220px",
+              objectFit: "cover",
+              display: "block",
+              background: "#111",
+            }}
+          />
+          <canvas ref={scanner.canvasRef} style={{ display: "none" }} />
+          {scanner.isScanning && (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                border: "2px solid #00cfff44",
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%,-50%)",
+                  width: "120px",
+                  height: "120px",
+                  border: "2px solid #00cfff",
+                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      <p
+        style={{
+          color: "#888",
+          fontSize: "0.6rem",
+          letterSpacing: "1px",
+          marginBottom: "6px",
+        }}
+      >
+        OR ENTER USERNAME MANUALLY:
+      </p>
+      <div style={{ display: "flex", gap: "6px" }}>
+        <input
+          type="text"
+          placeholder='USERNAME OR {"username":"..."}'
+          value={manualValue}
+          onChange={(e) => setManualValue(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handleManual()}
+          data-ocid="auth.qr.input"
+          style={{
+            flex: 1,
+            background: "#111",
+            border: "1px solid #00cfff44",
+            color: "#fff",
+            padding: "7px 10px",
+            fontSize: "0.7rem",
+            fontFamily: "'JetBrains Mono', monospace",
+            outline: "none",
+          }}
+        />
+        <button
+          type="button"
+          data-ocid="auth.qr.submit_button"
+          onClick={handleManual}
+          style={{
+            background: "#00cfff22",
+            border: "1px solid #00cfff",
+            color: "#00cfff",
+            padding: "7px 12px",
+            fontSize: "0.65rem",
+            fontWeight: 900,
+            letterSpacing: "1px",
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
+        >
+          USE
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AuthScreen({
   onLogin,
 }: {
@@ -1793,7 +2089,6 @@ function AuthScreen({
   const [loading, setLoading] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
-  const [showQrValue, setShowQrValue] = useState("");
   // Actor for backend calls (anonymous actor — no II required for auth)
   const { actor, isFetching: actorFetching } = useActor();
 
@@ -2267,67 +2562,12 @@ function AuthScreen({
               📷 LOGIN WITH QR CODE
             </button>
             {showQrScanner && (
-              <div
-                style={{
-                  background: "#080808",
-                  border: `1px solid ${S.blue}`,
-                  padding: "12px",
-                  marginTop: "8px",
+              <QRLoginScanner
+                onScan={(username) => {
+                  handleNameChange(username);
+                  setShowQrScanner(false);
                 }}
-              >
-                <p
-                  style={{
-                    color: S.dim,
-                    fontSize: "0.6rem",
-                    letterSpacing: "1px",
-                    marginBottom: "8px",
-                  }}
-                >
-                  PASTE QR CODE VALUE OR SCAN BELOW:
-                </p>
-                <input
-                  type="text"
-                  placeholder='{"username":"..."} OR USERNAME'
-                  value={showQrValue}
-                  onChange={(e) => setShowQrValue(e.target.value)}
-                  data-ocid="auth.qr.input"
-                  style={{
-                    ...inputStyle,
-                    margin: "0 0 8px",
-                    fontSize: "0.7rem",
-                  }}
-                />
-                <button
-                  type="button"
-                  data-ocid="auth.qr.submit_button"
-                  onClick={() => {
-                    try {
-                      const parsed = JSON.parse(showQrValue);
-                      if (parsed.username) {
-                        handleNameChange(parsed.username.toUpperCase());
-                        setShowQrScanner(false);
-                        setShowQrValue("");
-                      }
-                    } catch {
-                      // Try as plain username
-                      const u = showQrValue.trim().toUpperCase();
-                      if (u) {
-                        handleNameChange(u);
-                        setShowQrScanner(false);
-                        setShowQrValue("");
-                      }
-                    }
-                  }}
-                  style={{
-                    ...btnPrimary,
-                    padding: "8px",
-                    fontSize: "0.7rem",
-                    width: "100%",
-                  }}
-                >
-                  USE USERNAME FROM QR
-                </button>
-              </div>
+              />
             )}
           </>
         )}
@@ -5776,10 +6016,26 @@ function SectorWorkspace({
   const [logTitle, setLogTitle] = useState("");
   const [logBody, setLogBody] = useState("");
   const [logLevel, setLogLevel] = useState(1);
+  const [logAttachments, setLogAttachments] = useState<LogAttachment[]>([]);
+  const [showLogEmojiPicker, setShowLogEmojiPicker] = useState(false);
+  const [showLogGifPanel, setShowLogGifPanel] = useState(false);
+  const [logGifUrl, setLogGifUrl] = useState("");
+  const logImageRef = useRef<HTMLInputElement>(null);
+  const logFileRef = useRef<HTMLInputElement>(null);
+  const logVideoRef = useRef<HTMLInputElement>(null);
+  const logAudioRef = useRef<HTMLInputElement>(null);
 
   // Post form state
   const [postTxt, setPostTxt] = useState("");
   const [postMinLvl, setPostMinLvl] = useState(1);
+  const [postAttachments, setPostAttachments] = useState<LogAttachment[]>([]);
+  const [showPostEmojiPicker, setShowPostEmojiPicker] = useState(false);
+  const [showPostGifPanel, setShowPostGifPanel] = useState(false);
+  const [postGifUrl, setPostGifUrl] = useState("");
+  const postImageRef = useRef<HTMLInputElement>(null);
+  const postFileRef = useRef<HTMLInputElement>(null);
+  const postVideoRef = useRef<HTMLInputElement>(null);
+  const postAudioRef = useRef<HTMLInputElement>(null);
 
   // Post edit state: maps post id -> edit draft text (undefined = not editing)
   const [editingPost, setEditingPost] = useState<Record<string, string>>({});
@@ -5789,6 +6045,42 @@ function SectorWorkspace({
 
   const refreshLogs = () => setLogs(getSectorLogs());
   const refreshPosts = () => setAdminPostsState(getAdminPosts());
+
+  const readFileAsDataUrl2 = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+
+  const handleLogFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: LogAttachment["type"],
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl2(file);
+    setLogAttachments((prev) => [
+      ...prev,
+      { type, dataUrl, name: file.name, mimeType: file.type },
+    ]);
+    e.target.value = "";
+  };
+
+  const handlePostFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: LogAttachment["type"],
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const dataUrl = await readFileAsDataUrl2(file);
+    setPostAttachments((prev) => [
+      ...prev,
+      { type, dataUrl, name: file.name, mimeType: file.type },
+    ]);
+    e.target.value = "";
+  };
 
   const submitLog = () => {
     if (!logTitle || !logBody) return;
@@ -5803,10 +6095,14 @@ function SectorWorkspace({
       author: currentUser.name,
       level: logLevel,
       date,
+      attachments: logAttachments.length > 0 ? logAttachments : undefined,
     });
     setSectorLogs(allLogs);
     setLogTitle("");
     setLogBody("");
+    setLogAttachments([]);
+    setShowLogEmojiPicker(false);
+    setShowLogGifPanel(false);
     refreshLogs();
     // Sync to canister
     actor
@@ -5822,7 +6118,7 @@ function SectorWorkspace({
   };
 
   const makePost = () => {
-    if (!postTxt) return;
+    if (!postTxt && postAttachments.length === 0) return;
     const date = new Date().toLocaleString();
     const posts = getAdminPosts();
     posts.push({
@@ -5832,9 +6128,13 @@ function SectorWorkspace({
       minLvl: postMinLvl,
       date,
       sector: activeSectorKey,
+      attachments: postAttachments.length > 0 ? postAttachments : undefined,
     });
     setAdminPosts(posts);
     setPostTxt("");
+    setPostAttachments([]);
+    setShowPostEmojiPicker(false);
+    setShowPostGifPanel(false);
     addActivity("ADMIN POST TRANSMITTED");
     refreshPosts();
     onActivity();
@@ -6148,7 +6448,77 @@ function SectorWorkspace({
                 ) : redacted ? (
                   <p style={{ opacity: 0.5, margin: "4px 0 0" }}>[REDACTED]</p>
                 ) : (
-                  <p style={{ margin: "4px 0 0", color: S.white }}>{l.body}</p>
+                  <div style={{ margin: "4px 0 0" }}>
+                    <p style={{ color: S.white, margin: 0 }}>{l.body}</p>
+                    {l.attachments?.map((att, ai) => {
+                      const akey = `log-att-${logId}-${ai}`;
+                      if (att.type === "image" || att.type === "gif") {
+                        return (
+                          <img
+                            key={akey}
+                            src={att.dataUrl || att.url}
+                            alt={att.name || "media"}
+                            style={{
+                              maxWidth: "100%",
+                              maxHeight: "200px",
+                              objectFit: "contain",
+                              display: "block",
+                              marginTop: "6px",
+                            }}
+                          />
+                        );
+                      }
+                      if (att.type === "video") {
+                        return (
+                          // biome-ignore lint/a11y/useMediaCaption: user-generated content
+                          <video
+                            key={akey}
+                            controls
+                            src={att.dataUrl}
+                            style={{
+                              maxWidth: "100%",
+                              maxHeight: "180px",
+                              display: "block",
+                              marginTop: "6px",
+                            }}
+                          />
+                        );
+                      }
+                      if (att.type === "audio") {
+                        return (
+                          // biome-ignore lint/a11y/useMediaCaption: user-generated content
+                          <audio
+                            key={akey}
+                            controls
+                            src={att.dataUrl}
+                            style={{ width: "100%", marginTop: "6px" }}
+                          />
+                        );
+                      }
+                      if (att.type === "file") {
+                        return (
+                          <a
+                            key={akey}
+                            href={att.dataUrl}
+                            download={att.name || "file"}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              color: S.blue,
+                              fontSize: "0.65rem",
+                              marginTop: "6px",
+                              textDecoration: "none",
+                              fontWeight: 900,
+                            }}
+                          >
+                            📁 {att.name || "FILE"}
+                          </a>
+                        );
+                      }
+                      return null;
+                    })}
+                  </div>
                 )}
               </div>
             );
@@ -6201,6 +6571,256 @@ function SectorWorkspace({
             onChange={(e) => setLogBody(e.target.value)}
             style={textareaStyle}
           />
+          {/* Log attachment toolbar */}
+          <div
+            style={{
+              display: "flex",
+              gap: "4px",
+              marginBottom: "6px",
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              data-ocid="log.upload_button"
+              title="IMAGE"
+              onClick={() => logImageRef.current?.click()}
+              style={{ ...btnSmall, padding: "4px 7px", fontSize: "0.8rem" }}
+            >
+              🖼️
+            </button>
+            <button
+              type="button"
+              title="VIDEO"
+              onClick={() => logVideoRef.current?.click()}
+              style={{ ...btnSmall, padding: "4px 7px", fontSize: "0.8rem" }}
+            >
+              🎬
+            </button>
+            <button
+              type="button"
+              title="AUDIO"
+              onClick={() => logAudioRef.current?.click()}
+              style={{ ...btnSmall, padding: "4px 7px", fontSize: "0.8rem" }}
+            >
+              🎵
+            </button>
+            <button
+              type="button"
+              title="FILE"
+              onClick={() => logFileRef.current?.click()}
+              style={{ ...btnSmall, padding: "4px 7px", fontSize: "0.8rem" }}
+            >
+              📁
+            </button>
+            <button
+              type="button"
+              title="GIF"
+              onClick={() => {
+                setShowLogGifPanel((o) => !o);
+                setShowLogEmojiPicker(false);
+              }}
+              style={{
+                ...btnSmall,
+                padding: "4px 7px",
+                fontSize: "0.8rem",
+                background: showLogGifPanel ? "#1a1500" : "#111",
+                color: showLogGifPanel ? S.gold : S.dim,
+              }}
+            >
+              GIF
+            </button>
+            <button
+              type="button"
+              title="EMOJI"
+              onClick={() => {
+                setShowLogEmojiPicker((o) => !o);
+                setShowLogGifPanel(false);
+              }}
+              style={{
+                ...btnSmall,
+                padding: "4px 7px",
+                fontSize: "0.8rem",
+                background: showLogEmojiPicker ? "#1a1500" : "#111",
+                color: showLogEmojiPicker ? S.gold : S.dim,
+              }}
+            >
+              😊
+            </button>
+          </div>
+          {showLogGifPanel && (
+            <div
+              style={{
+                background: "#080808",
+                border: `1px solid ${S.brd}`,
+                padding: "6px",
+                marginBottom: "6px",
+              }}
+            >
+              <input
+                type="text"
+                placeholder="PASTE GIF URL..."
+                value={logGifUrl}
+                onChange={(e) => setLogGifUrl(e.target.value)}
+                style={{
+                  ...inputStyle,
+                  margin: "0 0 4px 0",
+                  fontSize: "0.65rem",
+                }}
+              />
+              <div style={{ display: "flex", gap: "5px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (logGifUrl.trim()) {
+                      setLogAttachments((p) => [
+                        ...p,
+                        { type: "gif", url: logGifUrl.trim() },
+                      ]);
+                      setLogGifUrl("");
+                      setShowLogGifPanel(false);
+                    }
+                  }}
+                  style={{ ...btnSmall, background: S.gold, color: "#000" }}
+                >
+                  ADD
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowLogGifPanel(false)}
+                  style={{ ...btnSmall }}
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          )}
+          {showLogEmojiPicker && (
+            <div
+              style={{
+                background: "#080808",
+                border: `1px solid ${S.brd}`,
+                padding: "6px",
+                marginBottom: "6px",
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(8, 1fr)",
+                  gap: "2px",
+                  maxHeight: "120px",
+                  overflowY: "auto",
+                }}
+              >
+                {EMOJI_LIST.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => {
+                      setLogBody((p) => p + emoji);
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "1rem",
+                      padding: "2px",
+                    }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {logAttachments.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "4px",
+                marginBottom: "6px",
+              }}
+            >
+              {logAttachments.map((att, idx) => (
+                <div
+                  key={`la-${att.type}-${idx}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "3px",
+                    border: `1px solid ${S.gold}55`,
+                    background: "#0a0800",
+                    padding: "3px 6px",
+                    fontSize: "0.6rem",
+                    color: S.gold,
+                  }}
+                >
+                  {att.type === "image" && <span>🖼️</span>}
+                  {att.type === "gif" && <span>GIF</span>}
+                  {att.type === "video" && <span>🎬</span>}
+                  {att.type === "audio" && <span>🎵</span>}
+                  {att.type === "file" && <span>📁</span>}
+                  <span
+                    style={{
+                      maxWidth: "60px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {att.name || att.type.toUpperCase()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLogAttachments((p) => p.filter((_, i) => i !== idx))
+                    }
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: S.red,
+                      cursor: "pointer",
+                      padding: "0 2px",
+                      fontSize: "0.7rem",
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Hidden file inputs */}
+          <input
+            ref={logImageRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => handleLogFileUpload(e, "image")}
+          />
+          <input
+            ref={logFileRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,.csv,.xls,.xlsx"
+            style={{ display: "none" }}
+            onChange={(e) => handleLogFileUpload(e, "file")}
+          />
+          <input
+            ref={logVideoRef}
+            type="file"
+            accept="video/*"
+            style={{ display: "none" }}
+            onChange={(e) => handleLogFileUpload(e, "video")}
+          />
+          <input
+            ref={logAudioRef}
+            type="file"
+            accept="audio/*"
+            style={{ display: "none" }}
+            onChange={(e) => handleLogFileUpload(e, "audio")}
+          />
           <select
             value={logLevel}
             onChange={(e) => setLogLevel(Number.parseInt(e.target.value))}
@@ -6214,6 +6834,7 @@ function SectorWorkspace({
           </select>
           <button
             type="button"
+            data-ocid="log.submit_button"
             style={{ ...btnPrimary, marginTop: "8px" }}
             onClick={submitLog}
           >
@@ -6242,6 +6863,256 @@ function SectorWorkspace({
             onChange={(e) => setPostTxt(e.target.value)}
             style={textareaStyle}
           />
+          {/* Post attachment toolbar */}
+          <div
+            style={{
+              display: "flex",
+              gap: "4px",
+              marginBottom: "6px",
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              type="button"
+              data-ocid="post.upload_button"
+              title="IMAGE"
+              onClick={() => postImageRef.current?.click()}
+              style={{ ...btnSmall, padding: "4px 7px", fontSize: "0.8rem" }}
+            >
+              🖼️
+            </button>
+            <button
+              type="button"
+              title="VIDEO"
+              onClick={() => postVideoRef.current?.click()}
+              style={{ ...btnSmall, padding: "4px 7px", fontSize: "0.8rem" }}
+            >
+              🎬
+            </button>
+            <button
+              type="button"
+              title="AUDIO"
+              onClick={() => postAudioRef.current?.click()}
+              style={{ ...btnSmall, padding: "4px 7px", fontSize: "0.8rem" }}
+            >
+              🎵
+            </button>
+            <button
+              type="button"
+              title="FILE"
+              onClick={() => postFileRef.current?.click()}
+              style={{ ...btnSmall, padding: "4px 7px", fontSize: "0.8rem" }}
+            >
+              📁
+            </button>
+            <button
+              type="button"
+              title="GIF"
+              onClick={() => {
+                setShowPostGifPanel((o) => !o);
+                setShowPostEmojiPicker(false);
+              }}
+              style={{
+                ...btnSmall,
+                padding: "4px 7px",
+                fontSize: "0.8rem",
+                background: showPostGifPanel ? "#1a1500" : "#111",
+                color: showPostGifPanel ? S.gold : S.dim,
+              }}
+            >
+              GIF
+            </button>
+            <button
+              type="button"
+              title="EMOJI"
+              onClick={() => {
+                setShowPostEmojiPicker((o) => !o);
+                setShowPostGifPanel(false);
+              }}
+              style={{
+                ...btnSmall,
+                padding: "4px 7px",
+                fontSize: "0.8rem",
+                background: showPostEmojiPicker ? "#1a1500" : "#111",
+                color: showPostEmojiPicker ? S.gold : S.dim,
+              }}
+            >
+              😊
+            </button>
+          </div>
+          {showPostGifPanel && (
+            <div
+              style={{
+                background: "#080808",
+                border: `1px solid ${S.brd}`,
+                padding: "6px",
+                marginBottom: "6px",
+              }}
+            >
+              <input
+                type="text"
+                placeholder="PASTE GIF URL..."
+                value={postGifUrl}
+                onChange={(e) => setPostGifUrl(e.target.value)}
+                style={{
+                  ...inputStyle,
+                  margin: "0 0 4px 0",
+                  fontSize: "0.65rem",
+                }}
+              />
+              <div style={{ display: "flex", gap: "5px" }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (postGifUrl.trim()) {
+                      setPostAttachments((p) => [
+                        ...p,
+                        { type: "gif", url: postGifUrl.trim() },
+                      ]);
+                      setPostGifUrl("");
+                      setShowPostGifPanel(false);
+                    }
+                  }}
+                  style={{ ...btnSmall, background: S.gold, color: "#000" }}
+                >
+                  ADD
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowPostGifPanel(false)}
+                  style={{ ...btnSmall }}
+                >
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          )}
+          {showPostEmojiPicker && (
+            <div
+              style={{
+                background: "#080808",
+                border: `1px solid ${S.brd}`,
+                padding: "6px",
+                marginBottom: "6px",
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(8, 1fr)",
+                  gap: "2px",
+                  maxHeight: "120px",
+                  overflowY: "auto",
+                }}
+              >
+                {EMOJI_LIST.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => {
+                      setPostTxt((p) => p + emoji);
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: "1rem",
+                      padding: "2px",
+                    }}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {postAttachments.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "4px",
+                marginBottom: "6px",
+              }}
+            >
+              {postAttachments.map((att, idx) => (
+                <div
+                  key={`pa-${att.type}-${idx}`}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "3px",
+                    border: `1px solid ${S.gold}55`,
+                    background: "#0a0800",
+                    padding: "3px 6px",
+                    fontSize: "0.6rem",
+                    color: S.gold,
+                  }}
+                >
+                  {att.type === "image" && <span>🖼️</span>}
+                  {att.type === "gif" && <span>GIF</span>}
+                  {att.type === "video" && <span>🎬</span>}
+                  {att.type === "audio" && <span>🎵</span>}
+                  {att.type === "file" && <span>📁</span>}
+                  <span
+                    style={{
+                      maxWidth: "60px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {att.name || att.type.toUpperCase()}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPostAttachments((p) => p.filter((_, i) => i !== idx))
+                    }
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: S.red,
+                      cursor: "pointer",
+                      padding: "0 2px",
+                      fontSize: "0.7rem",
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Hidden file inputs */}
+          <input
+            ref={postImageRef}
+            type="file"
+            accept="image/*"
+            style={{ display: "none" }}
+            onChange={(e) => handlePostFileUpload(e, "image")}
+          />
+          <input
+            ref={postFileRef}
+            type="file"
+            accept=".pdf,.doc,.docx,.txt,.csv,.xls,.xlsx"
+            style={{ display: "none" }}
+            onChange={(e) => handlePostFileUpload(e, "file")}
+          />
+          <input
+            ref={postVideoRef}
+            type="file"
+            accept="video/*"
+            style={{ display: "none" }}
+            onChange={(e) => handlePostFileUpload(e, "video")}
+          />
+          <input
+            ref={postAudioRef}
+            type="file"
+            accept="audio/*"
+            style={{ display: "none" }}
+            onChange={(e) => handlePostFileUpload(e, "audio")}
+          />
           <select
             value={postMinLvl}
             onChange={(e) => setPostMinLvl(Number.parseInt(e.target.value))}
@@ -6255,6 +7126,7 @@ function SectorWorkspace({
           </select>
           <button
             type="button"
+            data-ocid="post.submit_button"
             style={{ ...btnPrimary, marginTop: "8px" }}
             onClick={makePost}
           >
@@ -6416,9 +7288,77 @@ function SectorWorkspace({
                       </div>
                     </div>
                   ) : (
-                    <p style={{ margin: "4px 0 0", color: S.white }}>
-                      {p.content}
-                    </p>
+                    <div style={{ margin: "4px 0 0" }}>
+                      <p style={{ color: S.white, margin: 0 }}>{p.content}</p>
+                      {p.attachments?.map((att, ai) => {
+                        const akey = `post-att-${postId}-${ai}`;
+                        if (att.type === "image" || att.type === "gif") {
+                          return (
+                            <img
+                              key={akey}
+                              src={att.dataUrl || att.url}
+                              alt={att.name || "media"}
+                              style={{
+                                maxWidth: "100%",
+                                maxHeight: "200px",
+                                objectFit: "contain",
+                                display: "block",
+                                marginTop: "6px",
+                              }}
+                            />
+                          );
+                        }
+                        if (att.type === "video") {
+                          return (
+                            // biome-ignore lint/a11y/useMediaCaption: user-generated content
+                            <video
+                              key={akey}
+                              controls
+                              src={att.dataUrl}
+                              style={{
+                                maxWidth: "100%",
+                                maxHeight: "180px",
+                                display: "block",
+                                marginTop: "6px",
+                              }}
+                            />
+                          );
+                        }
+                        if (att.type === "audio") {
+                          return (
+                            // biome-ignore lint/a11y/useMediaCaption: user-generated content
+                            <audio
+                              key={akey}
+                              controls
+                              src={att.dataUrl}
+                              style={{ width: "100%", marginTop: "6px" }}
+                            />
+                          );
+                        }
+                        if (att.type === "file") {
+                          return (
+                            <a
+                              key={akey}
+                              href={att.dataUrl}
+                              download={att.name || "file"}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "4px",
+                                color: S.blue,
+                                fontSize: "0.65rem",
+                                marginTop: "6px",
+                                textDecoration: "none",
+                                fontWeight: 900,
+                              }}
+                            >
+                              📁 {att.name || "FILE"}
+                            </a>
+                          );
+                        }
+                        return null;
+                      })}
+                    </div>
                   )}
                 </div>
               );
@@ -6593,6 +7533,7 @@ function AdminSettingsPanel({
   const [db, setDbState] = useState<UserDB>(getDB);
   const [editContactLink, setEditContactLink] = useState(contactLink);
   const [contactSaved, setContactSaved] = useState(false);
+  const [qrOpenFor, setQrOpenFor] = useState<Set<string>>(new Set());
 
   const refresh = () => setDbState(getDB());
 
@@ -7032,6 +7973,122 @@ function AdminSettingsPanel({
                           )}
                         </div>
                       )}
+                      {/* QR Management — L6 only */}
+                      <div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQrOpenFor((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(memberName)) next.delete(memberName);
+                              else next.add(memberName);
+                              return next;
+                            });
+                          }}
+                          style={{
+                            ...btnSmall,
+                            background: qrOpenFor.has(memberName)
+                              ? "#0a0a00"
+                              : "transparent",
+                            color: S.gold,
+                            border: `1px solid ${S.gold}44`,
+                          }}
+                        >
+                          QR {qrOpenFor.has(memberName) ? "▾" : "▸"}
+                        </button>
+                        {qrOpenFor.has(memberName) &&
+                          (() => {
+                            const qrKey = `x_qr_assigned_${memberName}`;
+                            const assigned = localStorage.getItem(qrKey);
+                            const qrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(JSON.stringify({ username: memberName }))}`;
+                            return (
+                              <div
+                                style={{
+                                  background: "#0a0a00",
+                                  border: `1px solid ${S.gold}44`,
+                                  padding: "10px",
+                                  marginTop: "6px",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: "8px",
+                                  alignItems: "flex-start",
+                                }}
+                              >
+                                {assigned ? (
+                                  <img
+                                    src={qrDataUrl}
+                                    alt={`QR for ${memberName}`}
+                                    style={{
+                                      width: "90px",
+                                      height: "90px",
+                                      background: "#fff",
+                                      padding: "4px",
+                                    }}
+                                  />
+                                ) : (
+                                  <p
+                                    style={{
+                                      color: S.dim,
+                                      fontSize: "0.6rem",
+                                      letterSpacing: "1px",
+                                      margin: 0,
+                                    }}
+                                  >
+                                    NO QR ASSIGNED
+                                  </p>
+                                )}
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    gap: "6px",
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    data-ocid="sovereign.qr.primary_button"
+                                    onClick={() => {
+                                      localStorage.setItem(
+                                        qrKey,
+                                        JSON.stringify({
+                                          username: memberName,
+                                        }),
+                                      );
+                                      setQrOpenFor(
+                                        (prev) => new Set([...prev]),
+                                      );
+                                    }}
+                                    style={{
+                                      ...btnSmall,
+                                      background: "#1a1a00",
+                                      color: S.gold,
+                                      border: `1px solid ${S.gold}44`,
+                                    }}
+                                  >
+                                    GENERATE / UPDATE QR
+                                  </button>
+                                  {assigned && (
+                                    <button
+                                      type="button"
+                                      data-ocid="sovereign.qr.secondary_button"
+                                      onClick={() =>
+                                        window.open(qrDataUrl, "_blank")
+                                      }
+                                      style={{
+                                        ...btnSmall,
+                                        background: "#001a0a",
+                                        color: S.green,
+                                        border: `1px solid ${S.green}44`,
+                                      }}
+                                    >
+                                      EXPORT QR ↗
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                      </div>
                     </div>
                   );
                 })
@@ -9395,6 +10452,13 @@ export default function App() {
   // Global active office — determines which office's data is shown for all facilities
   const [activeOffice, setActiveOffice] = useState<OfficeLocation | null>(null);
   const [officePickerOpen, setOfficePickerOpen] = useState(false);
+  // Per-office facilities list
+  const [officeFacilities, setOfficeFacilitiesState] = useState<
+    OfficeFacility[]
+  >(() => [...DEFAULT_OFFICE_FACILITIES]);
+  const [editFacilityIds, setEditFacilityIds] = useState<Set<string>>(
+    new Set(),
+  );
   // Snapshot of all menu items — polled so sold-out lists in tiles stay fresh
   const [menuSnapshot, setMenuSnapshot] = useState<MenuItem[]>(getMenuItems);
   // Canister sync counter — bump to force re-render of components reading localStorage
@@ -10512,6 +11576,7 @@ export default function App() {
                     data-ocid="office_selector.clear_button"
                     onClick={() => {
                       setActiveOffice(null);
+                      setOfficeFacilitiesState([...DEFAULT_OFFICE_FACILITIES]);
                       setOfficePickerOpen(false);
                     }}
                     style={{
@@ -10561,7 +11626,13 @@ export default function App() {
                         key={office.id}
                         data-ocid={`office_selector.item.${idx + 1}`}
                         onClick={() => {
-                          setActiveOffice(isActive ? null : office);
+                          const newOffice = isActive ? null : office;
+                          setActiveOffice(newOffice);
+                          setOfficeFacilitiesState(
+                            newOffice
+                              ? getOfficeFacilities(newOffice.id)
+                              : [...DEFAULT_OFFICE_FACILITIES],
+                          );
                           setOfficePickerOpen(false);
                         }}
                         style={{
@@ -10622,17 +11693,53 @@ export default function App() {
         )}
 
         {/* Facilities */}
-        <h3
+        <div
           style={{
-            borderLeft: `5px solid ${S.gold}`,
-            paddingLeft: "15px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
             marginBottom: "20px",
-            fontSize: "0.9rem",
-            letterSpacing: "3px",
           }}
         >
-          FACILITIES
-        </h3>
+          <h3
+            style={{
+              borderLeft: `5px solid ${S.gold}`,
+              paddingLeft: "15px",
+              margin: 0,
+              fontSize: "0.9rem",
+              letterSpacing: "3px",
+            }}
+          >
+            FACILITIES
+          </h3>
+          {user?.lvl === 6 && activeOffice && (
+            <button
+              type="button"
+              data-ocid="facilities.primary_button"
+              onClick={() => {
+                const newFac: OfficeFacility = {
+                  id: `fac-${Date.now()}`,
+                  name: "New Facility",
+                  icon: "🏗️",
+                  desc: "Custom facility.",
+                };
+                const updated = [...officeFacilities, newFac];
+                setOfficeFacilitiesState(updated);
+                saveOfficeFacilities(activeOffice.id, updated);
+              }}
+              style={{
+                ...btnSmall,
+                background: "#001a00",
+                color: S.green,
+                border: `1px solid ${S.green}55`,
+                padding: "5px 10px",
+                fontSize: "0.6rem",
+              }}
+            >
+              + ADD FACILITY
+            </button>
+          )}
+        </div>
         <div
           style={{
             display: "grid",
@@ -10641,7 +11748,7 @@ export default function App() {
             marginBottom: "30px",
           }}
         >
-          {FACILITIES.map((f) => {
+          {officeFacilities.map((f) => {
             const facilityKey = activeOffice
               ? `${activeOffice.name}::${f.id}`
               : f.id;
@@ -10664,8 +11771,76 @@ export default function App() {
                       : `1px solid ${S.brd}`,
                   width: "100%",
                   textAlign: "left",
+                  position: "relative",
                 }}
               >
+                {/* L6 edit/remove facility buttons */}
+                {user?.lvl === 6 && activeOffice && (
+                  <>
+                    <button
+                      type="button"
+                      data-ocid="facility.edit_button"
+                      title="EDIT FACILITY"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditFacilityIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(f.id)) next.delete(f.id);
+                          else next.add(f.id);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        position: "absolute",
+                        top: "6px",
+                        right: "72px",
+                        background: editFacilityIds.has(f.id) ? S.gold : "#333",
+                        border: "none",
+                        color: editFacilityIds.has(f.id) ? "#000" : "#fff",
+                        fontSize: "0.5rem",
+                        padding: "2px 6px",
+                        cursor: "pointer",
+                        zIndex: 2,
+                        fontFamily: "inherit",
+                        fontWeight: 900,
+                        letterSpacing: "1px",
+                      }}
+                    >
+                      ✏ EDIT
+                    </button>
+                    <button
+                      type="button"
+                      data-ocid="facilities.delete_button"
+                      title="REMOVE FACILITY"
+                      onClick={() => {
+                        const updated = officeFacilities.filter(
+                          (x) => x.id !== f.id,
+                        );
+                        setOfficeFacilitiesState(updated);
+                        saveOfficeFacilities(activeOffice.id, updated);
+                        if (selectedSector === f.id)
+                          setSelectedSector("SECTOR DATA");
+                      }}
+                      style={{
+                        position: "absolute",
+                        top: "6px",
+                        right: "6px",
+                        background: S.red,
+                        border: "none",
+                        color: "#fff",
+                        fontSize: "0.5rem",
+                        padding: "2px 6px",
+                        cursor: "pointer",
+                        zIndex: 2,
+                        fontFamily: "inherit",
+                        fontWeight: 900,
+                        letterSpacing: "1px",
+                      }}
+                    >
+                      ✕ REMOVE
+                    </button>
+                  </>
+                )}
                 {/* Clickable header row */}
                 <button
                   type="button"
@@ -10703,9 +11878,23 @@ export default function App() {
                       marginRight: "20px",
                       minWidth: "50px",
                       textAlign: "center",
+                      flexShrink: 0,
                     }}
                   >
-                    {f.icon}
+                    {f.logoUrl ? (
+                      <img
+                        src={f.logoUrl}
+                        alt={f.name}
+                        style={{
+                          width: "50px",
+                          height: "50px",
+                          objectFit: "cover",
+                          borderRadius: "4px",
+                        }}
+                      />
+                    ) : (
+                      f.icon
+                    )}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <h4
@@ -10716,7 +11905,7 @@ export default function App() {
                         letterSpacing: "2px",
                       }}
                     >
-                      {f.id}
+                      {f.name}
                     </h4>
                     <p
                       style={{
@@ -10726,7 +11915,7 @@ export default function App() {
                         textTransform: "uppercase",
                       }}
                     >
-                      {f.d}
+                      {f.desc}
                     </p>
                   </div>
                   {soldOut.length > 0 && (
@@ -10747,6 +11936,160 @@ export default function App() {
                     </span>
                   )}
                 </button>
+
+                {/* Inline facility edit panel */}
+                {editFacilityIds.has(f.id) &&
+                  user?.lvl === 6 &&
+                  activeOffice && (
+                    <div
+                      style={{
+                        background: "#0a0a0a",
+                        borderTop: `1px solid ${S.brd}`,
+                        padding: "10px 20px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: "0.5rem",
+                          color: S.gold,
+                          letterSpacing: "3px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        EDIT FACILITY
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "0.55rem",
+                            color: S.dim,
+                            letterSpacing: "2px",
+                            minWidth: "60px",
+                          }}
+                        >
+                          NAME
+                        </span>
+                        <input
+                          type="text"
+                          data-ocid="facility.name.input"
+                          defaultValue={f.name}
+                          onBlur={(e) => {
+                            const newName = e.currentTarget.value.trim();
+                            if (!newName) return;
+                            const updated = officeFacilities.map((x) =>
+                              x.id === f.id ? { ...x, name: newName } : x,
+                            );
+                            setOfficeFacilitiesState(updated);
+                            saveOfficeFacilities(activeOffice.id, updated);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") e.currentTarget.blur();
+                          }}
+                          style={{
+                            flex: 1,
+                            background: "#111",
+                            border: `1px solid ${S.brd}`,
+                            color: S.white,
+                            fontFamily: "inherit",
+                            fontSize: "0.7rem",
+                            padding: "4px 8px",
+                            letterSpacing: "1px",
+                            outline: "none",
+                          }}
+                        />
+                      </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: "0.55rem",
+                            color: S.dim,
+                            letterSpacing: "2px",
+                            minWidth: "60px",
+                          }}
+                        >
+                          LOGO
+                        </span>
+                        <label
+                          data-ocid="facility.logo.upload_button"
+                          style={{
+                            background: "#222",
+                            border: `1px solid ${S.brd}`,
+                            color: S.white,
+                            fontSize: "0.55rem",
+                            padding: "3px 10px",
+                            cursor: "pointer",
+                            letterSpacing: "1px",
+                            fontWeight: 900,
+                          }}
+                        >
+                          📂 UPLOAD LOGO
+                          <input
+                            type="file"
+                            accept="image/*"
+                            style={{ display: "none" }}
+                            onChange={(e) => {
+                              const file = e.currentTarget.files?.[0];
+                              if (!file) return;
+                              const reader = new FileReader();
+                              reader.onload = (ev) => {
+                                const logoUrl = ev.target?.result as string;
+                                const updated = officeFacilities.map((x) =>
+                                  x.id === f.id ? { ...x, logoUrl } : x,
+                                );
+                                setOfficeFacilitiesState(updated);
+                                saveOfficeFacilities(activeOffice.id, updated);
+                              };
+                              reader.readAsDataURL(file);
+                            }}
+                          />
+                        </label>
+                        {f.logoUrl && (
+                          <button
+                            type="button"
+                            data-ocid="facility.logo.delete_button"
+                            onClick={() => {
+                              const updated = officeFacilities.map((x) =>
+                                x.id === f.id
+                                  ? { ...x, logoUrl: undefined }
+                                  : x,
+                              );
+                              setOfficeFacilitiesState(updated);
+                              saveOfficeFacilities(activeOffice.id, updated);
+                            }}
+                            style={{
+                              background: S.red,
+                              border: "none",
+                              color: "#fff",
+                              fontSize: "0.55rem",
+                              padding: "3px 10px",
+                              cursor: "pointer",
+                              fontFamily: "inherit",
+                              fontWeight: 900,
+                              letterSpacing: "1px",
+                            }}
+                          >
+                            ✕ CLEAR LOGO
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                 {/* Sold-out scroll list — only shown when there are sold-out items */}
                 {soldOut.length > 0 && (

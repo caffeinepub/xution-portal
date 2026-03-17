@@ -1,27 +1,35 @@
 # XUTION Portal
 
 ## Current State
-The Contact Command pill is a fixed `<a href="mailto:Gameloverv@gmail.com">` element with a hardcoded email address. There is no way for L6 admins to change this link.
+- QR code login exists on the login screen but uses a text input — no real camera scanning
+- Any user can upload a QR image to their ID card (ID_LINK section)
+- Sovereign Database shows member list with level controls for L6 only
+- No QR code generation, assignment, or export per member in Sovereign Database
 
 ## Requested Changes (Diff)
 
 ### Add
-- A `CONTACT COMMAND` section in `AdminSettingsPanel` (for L6 only) with:
-  - A label/header styled like other admin sections.
-  - A text input pre-filled with the current contact URL/email.
-  - A save button that persists the new value to `localStorage` under key `x_contact_link`.
-- A helper `getContactLink()` that reads `localStorage.getItem('x_contact_link')` and falls back to `'mailto:Gameloverv@gmail.com'`.
+- Real camera-based QR code scanner on login screen using `useQRScanner` hook
+- In Sovereign Database (admin panel, L6 only): per-member QR code management section
+  - Generate a QR code for each member (encoding their username as JSON: `{"username":"NAME"}`)
+  - Display the generated QR as a scannable image using the `qrserver.com` API
+  - Export/download QR code image per member
+  - L6 can also update (regenerate) the QR for any member
+  - Store assigned QR data per member in localStorage keyed by member name
 
 ### Modify
-- The Contact Pill `<a>` element's `href` should use `getContactLink()` instead of the hardcoded `mailto:Gameloverv@gmail.com`.
-- The Contact Pill should also re-render when the contact link is updated (use React state initialized from `getContactLink()` and updated on save).
+- Login screen QR section: replace the plain text paste box with a live camera scanner (using `useQRScanner`). Retain manual text fallback.
+- Sovereign Database member rows: add a collapsible QR sub-panel (L6 only) with generate/view/export controls
+- Remove the QR upload section from the ID card (ID_LINK) since QR management is now L6-only via Sovereign Database
 
 ### Remove
-- Nothing removed.
+- QR image upload button from the ID card/ID_LINK section (any user could previously upload their own QR)
 
 ## Implementation Plan
-1. Add `getContactLink()` helper near other `getAboutContent` helpers.
-2. Add `contactLink` state in the main `App` component, initialized from `getContactLink()`.
-3. Pass `contactLink` and a setter/callback `onContactLinkChange` to `AdminSettingsPanel`.
-4. In `AdminSettingsPanel`, add a `CONTACT COMMAND` section with an input and save button. On save, write to localStorage, call `onContactLinkChange`, and show a brief confirmation.
-5. Update the Contact Pill `href` to use `contactLink` state.
+1. Create a `QRLoginScanner` component using `useQRScanner` that renders a camera preview + canvas, auto-fills the username on scan, and shows a manual text fallback
+2. Integrate `QRLoginScanner` into the login screen replacing the current QR text input flow
+3. In the Sovereign Database section (inside AdminPanel, L6 only), add a per-member collapsible QR block:
+   - A "GENERATE QR" button that sets a localStorage key `x_qr_assigned_<memberName>` to `{"username":"<memberName>"}`
+   - Renders the QR image via `qrserver.com` API
+   - An "EXPORT" button that opens the QR image URL in a new tab (or triggers download)
+4. Remove the QR image upload controls from the ID_LINK/App component
