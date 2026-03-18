@@ -309,6 +309,21 @@ function getCardExpiry(uid: string | undefined): string {
   return `${mm}/29`;
 }
 
+// ─── ID Card Image helpers ────────────────────────────────────────────────────
+function getIdCardImage(username: string): string | null {
+  return localStorage.getItem(`x_idcard_${username}`);
+}
+function setIdCardImage(username: string, dataUrl: string) {
+  localStorage.setItem(`x_idcard_${username}`, dataUrl);
+}
+function exportIdCardImage(username: string) {
+  const data = getIdCardImage(username);
+  if (!data) return;
+  const a = document.createElement("a");
+  a.href = data;
+  a.download = `${username}_id_card.png`;
+  a.click();
+}
 // ─── Office Location helpers ─────────────────────────────────────────────────
 
 interface OfficeLocation {
@@ -690,11 +705,6 @@ function XutionCard({ currentUser }: { currentUser: CurrentUser }) {
     getFunds(currentUser.name),
   );
   const [showQrModal, setShowQrModal] = useState(false);
-  const qrData = encodeURIComponent(
-    JSON.stringify({ username: currentUser.name }),
-  );
-  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrData}`;
-
   // Poll funds from localStorage in case they change (L6 admin update)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -869,17 +879,32 @@ function XutionCard({ currentUser }: { currentUser: CurrentUser }) {
                 fontWeight: 900,
               }}
             >
-              YOUR XUTION QR CODE
+              YOUR ID CARD
             </div>
-            <img
-              src={qrUrl}
-              alt="QR Code"
-              style={{
-                width: "200px",
-                height: "200px",
-                imageRendering: "pixelated",
-              }}
-            />
+            {getIdCardImage(currentUser.name) ? (
+              <img
+                src={getIdCardImage(currentUser.name)!}
+                alt="ID Card"
+                style={{
+                  width: "200px",
+                  maxHeight: "280px",
+                  objectFit: "contain",
+                  borderRadius: "6px",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  color: "#555",
+                  fontSize: "0.65rem",
+                  letterSpacing: "2px",
+                  textAlign: "center",
+                  padding: "20px",
+                }}
+              >
+                NO ID CARD IMPORTED YET
+              </div>
+            )}
             <div
               style={{ color: S.dim, fontSize: "0.6rem", letterSpacing: "2px" }}
             >
@@ -1234,21 +1259,28 @@ function FundManagement({
 
 function PersonalTransactionHistory({
   currentUser,
+  transactions,
 }: {
   currentUser: CurrentUser;
+  transactions?: TransactionEntry[];
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [txns, setTxns] = useState<TransactionEntry[]>(() =>
+  const [localTxns, setLocalTxns] = useState<TransactionEntry[]>(() =>
     getMemberTransactions(currentUser.name),
   );
 
-  const refresh = () => setTxns(getMemberTransactions(currentUser.name));
+  const refresh = () => setLocalTxns(getMemberTransactions(currentUser.name));
 
-  // Poll for updates (e.g. L6 adjusts your balance)
+  // Poll for updates (e.g. L6 adjusts your balance) - fallback for offline
   useEffect(() => {
     const id = setInterval(refresh, 3000);
     return () => clearInterval(id);
   });
+
+  // Use canister-polled transactions if available (real-time cross-device)
+  const txns = transactions
+    ? transactions.filter((t) => t.member === currentUser.name)
+    : localTxns;
 
   return (
     <div style={{ marginBottom: "16px" }}>
@@ -1681,16 +1713,22 @@ function PersonalFundManagement({
 
 // ─── GlobalTransactionHistory (L6 only) ──────────────────────────────────────
 
-function GlobalTransactionHistory() {
+function GlobalTransactionHistory({
+  transactions,
+}: { transactions?: TransactionEntry[] }) {
   const [expanded, setExpanded] = useState(false);
-  const [txns, setTxns] = useState<TransactionEntry[]>(getTransactions);
+  const [localTxns, setLocalTxns] =
+    useState<TransactionEntry[]>(getTransactions);
 
-  const refresh = () => setTxns(getTransactions());
+  const refresh = () => setLocalTxns(getTransactions());
 
   useEffect(() => {
     const id = setInterval(refresh, 3000);
     return () => clearInterval(id);
   });
+
+  // Use canister-polled transactions for real-time cross-device updates
+  const txns = transactions ?? localTxns;
 
   return (
     <div style={{ marginBottom: "30px" }}>
@@ -4832,6 +4870,7 @@ function MemberList({
     return () => clearInterval(id);
   }, [currentUser.name]);
 
+  const [memberSearch, setMemberSearch] = useState("");
   const refresh = () => setDbState(getDB());
 
   const handleFavToggle = (name: string) => {
@@ -4869,7 +4908,12 @@ function MemberList({
     }
   };
 
-  const memberNames = Object.keys(db);
+  const allMemberNames = Object.keys(db);
+  const memberNames = memberSearch.trim()
+    ? allMemberNames.filter((n) =>
+        n.toLowerCase().includes(memberSearch.toLowerCase()),
+      )
+    : allMemberNames;
   const favouriteNames = favs.filter((n) => memberNames.includes(n));
   const otherNames = memberNames.filter((n) => !favs.includes(n));
 
@@ -4954,80 +4998,108 @@ function MemberList({
       </button>
 
       {expanded && (
-        <div
-          className="xution-scroll"
-          style={{
-            border: `1px solid ${S.brd}`,
-            background: "#080808",
-            maxHeight: "400px",
-            overflowY: "auto",
-          }}
-        >
-          {memberNames.length === 0 ? (
-            <div
+        <>
+          <div
+            style={{
+              padding: "8px 12px",
+              background: "#0a0a0a",
+              borderLeft: `5px solid ${S.gold}`,
+              borderBottom: `1px solid ${S.brd}`,
+            }}
+          >
+            <input
+              type="text"
+              placeholder="SEARCH MEMBERS..."
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
               style={{
-                padding: "15px",
-                color: S.dim,
+                width: "100%",
+                background: "transparent",
+                border: "none",
+                outline: "none",
+                color: S.white,
                 fontSize: "0.7rem",
-                textAlign: "center",
-                textTransform: "uppercase",
+                fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                letterSpacing: "1px",
+                fontWeight: 900,
               }}
-            >
-              NO MEMBERS REGISTERED
-            </div>
-          ) : (
-            <>
-              {favouriteNames.length > 0 && (
-                <>
-                  <div
-                    style={{
-                      padding: "6px 15px",
-                      background: "#0d0b00",
-                      borderBottom: `1px solid ${S.gold}33`,
-                      fontSize: "0.55rem",
-                      color: S.gold,
-                      letterSpacing: "3px",
-                      fontWeight: 900,
-                    }}
-                  >
-                    ★ FAVOURITES
-                  </div>
-                  {favouriteNames.map((memberName) => (
-                    <MemberRow
-                      key={`fav-${memberName}`}
-                      memberName={memberName}
-                      isFav={true}
-                      {...sharedRowProps}
-                    />
-                  ))}
-                  {otherNames.length > 0 && (
+            />
+          </div>
+          <div
+            className="xution-scroll"
+            style={{
+              border: `1px solid ${S.brd}`,
+              background: "#080808",
+              maxHeight: "400px",
+              overflowY: "auto",
+            }}
+          >
+            {memberNames.length === 0 ? (
+              <div
+                style={{
+                  padding: "15px",
+                  color: S.dim,
+                  fontSize: "0.7rem",
+                  textAlign: "center",
+                  textTransform: "uppercase",
+                }}
+              >
+                NO MEMBERS REGISTERED
+              </div>
+            ) : (
+              <>
+                {favouriteNames.length > 0 && (
+                  <>
                     <div
                       style={{
                         padding: "6px 15px",
-                        background: "#0a0a0a",
-                        borderBottom: `1px solid ${S.brd}`,
+                        background: "#0d0b00",
+                        borderBottom: `1px solid ${S.gold}33`,
                         fontSize: "0.55rem",
-                        color: S.dim,
+                        color: S.gold,
                         letterSpacing: "3px",
                         fontWeight: 900,
                       }}
                     >
-                      ALL MEMBERS
+                      ★ FAVOURITES
                     </div>
-                  )}
-                </>
-              )}
-              {otherNames.map((memberName) => (
-                <MemberRow
-                  key={memberName}
-                  memberName={memberName}
-                  isFav={false}
-                  {...sharedRowProps}
-                />
-              ))}
-            </>
-          )}
-        </div>
+                    {favouriteNames.map((memberName) => (
+                      <MemberRow
+                        key={`fav-${memberName}`}
+                        memberName={memberName}
+                        isFav={true}
+                        {...sharedRowProps}
+                      />
+                    ))}
+                    {otherNames.length > 0 && (
+                      <div
+                        style={{
+                          padding: "6px 15px",
+                          background: "#0a0a0a",
+                          borderBottom: `1px solid ${S.brd}`,
+                          fontSize: "0.55rem",
+                          color: S.dim,
+                          letterSpacing: "3px",
+                          fontWeight: 900,
+                        }}
+                      >
+                        ALL MEMBERS
+                      </div>
+                    )}
+                  </>
+                )}
+                {otherNames.map((memberName) => (
+                  <MemberRow
+                    key={memberName}
+                    memberName={memberName}
+                    isFav={false}
+                    {...sharedRowProps}
+                  />
+                ))}
+              </>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -7514,6 +7586,7 @@ function AdminSettingsPanel({
   onDeactivateEB,
   contactLink,
   onContactLinkSave,
+  transactions,
 }: {
   open: boolean;
   onClose: () => void;
@@ -7528,12 +7601,14 @@ function AdminSettingsPanel({
   onDeactivateEB: () => void;
   contactLink: string;
   onContactLinkSave: (val: string) => void;
+  transactions?: TransactionEntry[];
 }) {
   const { actor } = useActor();
   const [db, setDbState] = useState<UserDB>(getDB);
   const [editContactLink, setEditContactLink] = useState(contactLink);
   const [contactSaved, setContactSaved] = useState(false);
   const [qrOpenFor, setQrOpenFor] = useState<Set<string>>(new Set());
+  const [sovereignSearch, setSovereignSearch] = useState("");
 
   const refresh = () => setDbState(getDB());
 
@@ -7580,7 +7655,12 @@ function AdminSettingsPanel({
     }
   };
 
-  const memberNames = Object.keys(db);
+  const allSovereignNames = Object.keys(db);
+  const memberNames = sovereignSearch.trim()
+    ? allSovereignNames.filter((n) =>
+        n.toLowerCase().includes(sovereignSearch.toLowerCase()),
+      )
+    : allSovereignNames;
 
   if (!open) return null;
 
@@ -7679,7 +7759,7 @@ function AdminSettingsPanel({
           <FundManagement onUpdate={onUpdate} currentUser={currentUser} />
 
           {/* ── Global Transaction Ledger ── */}
-          <GlobalTransactionHistory />
+          <GlobalTransactionHistory transactions={transactions} />
 
           {/* ── Emergency Broadcast ── */}
           <div style={{ marginBottom: "30px" }}>
@@ -7836,6 +7916,32 @@ function AdminSettingsPanel({
               >
                 SOVEREIGN DATABASE
               </h3>
+            </div>
+            <div
+              style={{
+                padding: "8px 12px",
+                background: "#0d0000",
+                borderLeft: `5px solid ${S.red}`,
+                borderBottom: `1px solid ${S.red}44`,
+              }}
+            >
+              <input
+                type="text"
+                placeholder="SEARCH SOVEREIGN DATABASE..."
+                value={sovereignSearch}
+                onChange={(e) => setSovereignSearch(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "transparent",
+                  border: "none",
+                  outline: "none",
+                  color: S.red,
+                  fontSize: "0.7rem",
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                  letterSpacing: "1px",
+                  fontWeight: 900,
+                }}
+              />
             </div>
             <div
               style={{
@@ -7998,9 +8104,7 @@ function AdminSettingsPanel({
                         </button>
                         {qrOpenFor.has(memberName) &&
                           (() => {
-                            const qrKey = `x_qr_assigned_${memberName}`;
-                            const assigned = localStorage.getItem(qrKey);
-                            const qrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(JSON.stringify({ username: memberName }))}`;
+                            const memberIdCard = getIdCardImage(memberName);
                             return (
                               <div
                                 style={{
@@ -8014,15 +8118,15 @@ function AdminSettingsPanel({
                                   alignItems: "flex-start",
                                 }}
                               >
-                                {assigned ? (
+                                {memberIdCard ? (
                                   <img
-                                    src={qrDataUrl}
-                                    alt={`QR for ${memberName}`}
+                                    src={memberIdCard}
+                                    alt={`ID Card for ${memberName}`}
                                     style={{
-                                      width: "90px",
-                                      height: "90px",
-                                      background: "#fff",
-                                      padding: "4px",
+                                      width: "120px",
+                                      maxHeight: "80px",
+                                      objectFit: "contain",
+                                      borderRadius: "4px",
                                     }}
                                   />
                                 ) : (
@@ -8034,7 +8138,7 @@ function AdminSettingsPanel({
                                       margin: 0,
                                     }}
                                   >
-                                    NO QR ASSIGNED
+                                    NO ID CARD IMPORTED
                                   </p>
                                 )}
                                 <div
@@ -8044,35 +8148,43 @@ function AdminSettingsPanel({
                                     flexWrap: "wrap",
                                   }}
                                 >
-                                  <button
-                                    type="button"
-                                    data-ocid="sovereign.qr.primary_button"
-                                    onClick={() => {
-                                      localStorage.setItem(
-                                        qrKey,
-                                        JSON.stringify({
-                                          username: memberName,
-                                        }),
-                                      );
-                                      setQrOpenFor(
-                                        (prev) => new Set([...prev]),
-                                      );
-                                    }}
+                                  <label
                                     style={{
                                       ...btnSmall,
                                       background: "#1a1a00",
                                       color: S.gold,
                                       border: `1px solid ${S.gold}44`,
+                                      cursor: "pointer",
                                     }}
                                   >
-                                    GENERATE / UPDATE QR
-                                  </button>
-                                  {assigned && (
+                                    IMPORT ID CARD
+                                    <input
+                                      type="file"
+                                      accept="image/*"
+                                      style={{ display: "none" }}
+                                      onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (!file) return;
+                                        const reader = new FileReader();
+                                        reader.onload = (ev) => {
+                                          const dataUrl = ev.target
+                                            ?.result as string;
+                                          setIdCardImage(memberName, dataUrl);
+                                          setQrOpenFor(
+                                            (prev) => new Set([...prev]),
+                                          );
+                                          e.target.value = "";
+                                        };
+                                        reader.readAsDataURL(file);
+                                      }}
+                                    />
+                                  </label>
+                                  {memberIdCard && (
                                     <button
                                       type="button"
                                       data-ocid="sovereign.qr.secondary_button"
                                       onClick={() =>
-                                        window.open(qrDataUrl, "_blank")
+                                        exportIdCardImage(memberName)
                                       }
                                       style={{
                                         ...btnSmall,
@@ -8081,7 +8193,7 @@ function AdminSettingsPanel({
                                         border: `1px solid ${S.green}44`,
                                       }}
                                     >
-                                      EXPORT QR ↗
+                                      EXPORT ID CARD ↗
                                     </button>
                                   )}
                                 </div>
@@ -10449,6 +10561,7 @@ export default function App() {
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string>("");
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [idCardTick, setIdCardTick] = useState(0);
   // Global active office — determines which office's data is shown for all facilities
   const [activeOffice, setActiveOffice] = useState<OfficeLocation | null>(null);
   const [officePickerOpen, setOfficePickerOpen] = useState(false);
@@ -10464,6 +10577,8 @@ export default function App() {
   // Canister sync counter — bump to force re-render of components reading localStorage
   const [_syncTick, setSyncTick] = useState(0);
   const [contactLink, setContactLink] = useState<string>(getContactLink);
+  const [allTransactions, setAllTransactions] =
+    useState<TransactionEntry[]>(getTransactions);
 
   // Actor for reconnect polling
   const { actor } = useActor();
@@ -10608,6 +10723,43 @@ export default function App() {
           localStorage.setItem(`x_funds_${name}`, String(amount));
         }
         setSyncTick((t) => t + 1);
+      } catch {
+        // ignore
+      }
+    }, 5000);
+    return () => clearInterval(id);
+  }, [actor]);
+
+  // Poll all transactions from canister every 5s — real-time purchase/fund updates across devices
+  useEffect(() => {
+    if (!actor) return;
+    const id = setInterval(async () => {
+      try {
+        const canisterTxns = await actor.getAllTransactions();
+        if (canisterTxns.length > 0) {
+          const mapped: TransactionEntry[] = canisterTxns.map((t) => ({
+            member: t.member,
+            prevAmount: t.prevAmount,
+            newAmount: t.newAmount,
+            changedBy: t.changedBy,
+            ts: t.ts,
+            description: t.description,
+          }));
+          // Merge with local (deduplicate by ts+member), keep newest first
+          const existing = getTransactions();
+          const existingKeys = new Set(
+            existing.map((e) => `${e.ts}-${e.member}`),
+          );
+          const newOnes = mapped.filter(
+            (t) => !existingKeys.has(`${t.ts}-${t.member}`),
+          );
+          if (newOnes.length > 0) {
+            const merged = [...newOnes, ...existing].slice(0, 500);
+            localStorage.setItem("x_transactions_v1", JSON.stringify(merged));
+          }
+          // Always update state with full canister set for real-time display
+          setAllTransactions(mapped.slice(0, 500));
+        }
       } catch {
         // ignore
       }
@@ -11108,6 +11260,7 @@ export default function App() {
             localStorage.setItem("x_contact_link", val);
             setContactLink(val);
           }}
+          transactions={allTransactions}
         />
       )}
 
@@ -11361,26 +11514,121 @@ export default function App() {
                     UID: #{user.uid}
                   </div>
                 )}
-                {user && (
-                  <button
-                    type="button"
-                    style={{
-                      ...btnSmall,
-                      background: S.red,
-                      color: "#fff",
-                      marginTop: "8px",
-                      width: "100%",
-                      padding: "6px",
-                    }}
-                    onClick={handleLogout}
-                  >
-                    LOGOUT
-                  </button>
-                )}
               </div>
             </div>
 
-            {/* Hidden file input */}
+            {/* ID Card image section */}
+            {user &&
+              (() => {
+                const idCardImg = getIdCardImage(user.name);
+                void idCardTick; // trigger re-render on import
+                return (
+                  <div style={{ marginTop: "10px" }}>
+                    {idCardImg ? (
+                      <img
+                        src={idCardImg}
+                        alt="ID Card"
+                        style={{
+                          width: "100%",
+                          borderRadius: "8px",
+                          marginBottom: "8px",
+                          display: "block",
+                        }}
+                      />
+                    ) : (
+                      <div
+                        style={{
+                          width: "100%",
+                          height: "80px",
+                          background: "#0a0a0a",
+                          border: `1px dashed ${S.brd}`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: "0.6rem",
+                          color: S.dim,
+                          letterSpacing: "2px",
+                          marginBottom: "8px",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        NO ID CARD IMPORTED
+                      </div>
+                    )}
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "6px",
+                        marginBottom: "8px",
+                      }}
+                    >
+                      <label
+                        style={{
+                          flex: 1,
+                          background: "#111",
+                          border: `1px solid ${S.blue}44`,
+                          color: S.blue,
+                          padding: "5px 8px",
+                          fontSize: "0.6rem",
+                          letterSpacing: "2px",
+                          cursor: "pointer",
+                          textAlign: "center",
+                          fontFamily:
+                            "'JetBrains Mono','Courier New',monospace",
+                          fontWeight: 900,
+                        }}
+                      >
+                        IMPORT ID CARD
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = (ev) => {
+                              const dataUrl = ev.target?.result as string;
+                              setIdCardImage(user.name, dataUrl);
+                              // Force re-render
+                              e.target.value = "";
+                              document.dispatchEvent(
+                                new Event("idcard-updated"),
+                              );
+                              setIdCardTick((t) => t + 1);
+                            };
+                            reader.readAsDataURL(file);
+                          }}
+                        />
+                      </label>
+                      {idCardImg && (
+                        <button
+                          type="button"
+                          data-ocid="id_link.export_button"
+                          onClick={() => exportIdCardImage(user.name)}
+                          style={{
+                            flex: 1,
+                            background: "#111",
+                            border: `1px solid ${S.green}44`,
+                            color: S.green,
+                            padding: "5px 8px",
+                            fontSize: "0.6rem",
+                            letterSpacing: "2px",
+                            cursor: "pointer",
+                            fontFamily:
+                              "'JetBrains Mono','Courier New',monospace",
+                            fontWeight: 900,
+                          }}
+                        >
+                          EXPORT ID CARD
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+
+            {/* Hidden file input for avatar */}
             {user && (
               <input
                 ref={avatarInputRef}
@@ -11389,6 +11637,27 @@ export default function App() {
                 style={{ display: "none" }}
                 onChange={handleAvatarChange}
               />
+            )}
+
+            {/* LOGOUT button — below ID card */}
+            {user && (
+              <button
+                type="button"
+                data-ocid="id_link.delete_button"
+                style={{
+                  ...btnSmall,
+                  background: S.red,
+                  color: "#fff",
+                  marginTop: "4px",
+                  width: "100%",
+                  padding: "8px",
+                  fontSize: "0.7rem",
+                  letterSpacing: "2px",
+                }}
+                onClick={handleLogout}
+              >
+                LOGOUT
+              </button>
             )}
           </div>
 
@@ -11427,7 +11696,10 @@ export default function App() {
               <XutionCard currentUser={user} />
               {/* Personal transaction history and fund management for all users */}
               <div style={{ width: "100%", marginTop: "8px" }}>
-                <PersonalTransactionHistory currentUser={user} />
+                <PersonalTransactionHistory
+                  currentUser={user}
+                  transactions={allTransactions}
+                />
                 <PersonalFundManagement
                   currentUser={user}
                   onPurchase={refreshActivities}

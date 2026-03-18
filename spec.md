@@ -1,35 +1,32 @@
 # XUTION Portal
 
 ## Current State
-- QR code login exists on the login screen but uses a text input — no real camera scanning
-- Any user can upload a QR image to their ID card (ID_LINK section)
-- Sovereign Database shows member list with level controls for L6 only
-- No QR code generation, assignment, or export per member in Sovereign Database
+
+- Transaction history exists for both personal (PersonalTransactionHistory) and global (GlobalTransactionHistory) views
+- Transactions are synced to canister on write, and loaded from canister on login, but NOT polled in real-time -- other devices only see new transactions after re-login
+- Member Directory is collapsible and scrollable but has no search/filter input
+- Sovereign Database (L6 admin panel) lists all members but has no search/filter input
+- Real-time canister polling exists for logs, posts, menu items, funds, lockdown -- but NOT transactions
 
 ## Requested Changes (Diff)
 
 ### Add
-- Real camera-based QR code scanner on login screen using `useQRScanner` hook
-- In Sovereign Database (admin panel, L6 only): per-member QR code management section
-  - Generate a QR code for each member (encoding their username as JSON: `{"username":"NAME"}`)
-  - Display the generated QR as a scannable image using the `qrserver.com` API
-  - Export/download QR code image per member
-  - L6 can also update (regenerate) the QR for any member
-  - Store assigned QR data per member in localStorage keyed by member name
+- Search bar in Member Directory to filter members by name
+- Search bar in Sovereign Database to filter members by name
+- Real-time canister polling for transactions (every 5s) so all devices see new purchases/fund changes live
+- Transaction history display already shows `description` (purchase name), but ensure the poll loop writes to state so the UI updates cross-device
 
 ### Modify
-- Login screen QR section: replace the plain text paste box with a live camera scanner (using `useQRScanner`). Retain manual text fallback.
-- Sovereign Database member rows: add a collapsible QR sub-panel (L6 only) with generate/view/export controls
-- Remove the QR upload section from the ID card (ID_LINK) since QR management is now L6-only via Sovereign Database
+- PersonalTransactionHistory: poll from canister state (via React state, not just localStorage) so purchases appear immediately cross-device
+- GlobalTransactionHistory: same -- read from canister-polled state
+- Main polling loop: add `getAllTransactions` polling every 5s, update local transaction state
 
 ### Remove
-- QR image upload button from the ID card/ID_LINK section (any user could previously upload their own QR)
+- Nothing removed
 
 ## Implementation Plan
-1. Create a `QRLoginScanner` component using `useQRScanner` that renders a camera preview + canvas, auto-fills the username on scan, and shows a manual text fallback
-2. Integrate `QRLoginScanner` into the login screen replacing the current QR text input flow
-3. In the Sovereign Database section (inside AdminPanel, L6 only), add a per-member collapsible QR block:
-   - A "GENERATE QR" button that sets a localStorage key `x_qr_assigned_<memberName>` to `{"username":"<memberName>"}`
-   - Renders the QR image via `qrserver.com` API
-   - An "EXPORT" button that opens the QR image URL in a new tab (or triggers download)
-4. Remove the QR image upload controls from the ID_LINK/App component
+
+1. Add `transactions` state at app level, populated from canister poll every 5s via `actor.getAllTransactions()`
+2. Pass transactions state down to PersonalTransactionHistory and GlobalTransactionHistory so they read live canister data
+3. Add `memberSearch` state to MemberDirectory component; render a search input when expanded; filter `memberNames` by search term
+4. Add `sovereignSearch` state to Sovereign Database section in admin panel; render a search input; filter `memberNames` by search term
