@@ -1190,7 +1190,10 @@ function FundManagement({
     );
     setFunds(adjustMember, next);
     const ts = new Date().toISOString();
-    const desc = `${label} FUNDS BY ${currentUser.name}`;
+    const desc =
+      dir === "add"
+        ? `ADD FUNDS TO ${adjustMember} BY ${currentUser.name}`
+        : `REMOVE FUNDS FROM ${adjustMember} BY ${currentUser.name}`;
     addTransaction({
       member: adjustMember,
       prevAmount: prev,
@@ -1220,7 +1223,7 @@ function FundManagement({
       newAmount: next,
       changedBy: currentUser.name,
       ts,
-      description: `FUND ADJUSTMENT BY ${currentUser.name}`,
+      description: `FUND SET FOR ${name} BY ${currentUser.name}`,
     });
     setInputVals((prev) => ({ ...prev, [name]: "" }));
     onUpdate();
@@ -1233,7 +1236,7 @@ function FundManagement({
         next,
         currentUser.name,
         ts,
-        `FUND ADJUSTMENT BY ${currentUser.name}`,
+        `FUND SET FOR ${name} BY ${currentUser.name}`,
       )
       .catch(() => {});
   };
@@ -1514,6 +1517,7 @@ function PersonalTransactionHistory({
   const [localTxns, setLocalTxns] = useState<TransactionEntry[]>(() =>
     getMemberTransactions(currentUser.name),
   );
+  const [txnSearch, setTxnSearch] = useState("");
 
   const refresh = () => setLocalTxns(getMemberTransactions(currentUser.name));
 
@@ -1539,6 +1543,19 @@ function PersonalTransactionHistory({
       b.ts.localeCompare(a.ts),
     );
   })();
+
+  const filteredTxns = txnSearch.trim()
+    ? txns.filter(
+        (t) =>
+          (t.description || "")
+            .toLowerCase()
+            .includes(txnSearch.toLowerCase()) ||
+          new Date(t.ts)
+            .toLocaleString()
+            .toLowerCase()
+            .includes(txnSearch.toLowerCase()),
+      )
+    : txns;
 
   return (
     <div style={{ marginBottom: "16px" }}>
@@ -1597,7 +1614,25 @@ function PersonalTransactionHistory({
             padding: "10px 12px",
           }}
         >
-          {txns.length === 0 ? (
+          <input
+            type="text"
+            value={txnSearch}
+            onChange={(e) => setTxnSearch(e.target.value)}
+            placeholder="SEARCH TRANSACTIONS..."
+            style={{
+              width: "100%",
+              background: "#111",
+              border: `1px solid ${S.brd}`,
+              color: S.white,
+              padding: "5px 8px",
+              fontSize: "0.6rem",
+              letterSpacing: "2px",
+              fontFamily: "inherit",
+              marginBottom: "8px",
+              boxSizing: "border-box",
+            }}
+          />
+          {filteredTxns.length === 0 ? (
             <div
               style={{
                 color: S.dim,
@@ -1610,7 +1645,7 @@ function PersonalTransactionHistory({
               NO TRANSACTIONS YET
             </div>
           ) : (
-            txns.map((t, i) => {
+            filteredTxns.map((t, i) => {
               const delta = t.newAmount - t.prevAmount;
               const isPositive = delta >= 0;
               return (
@@ -1990,7 +2025,12 @@ function PersonalFundManagement({
 function GlobalTransactionHistory({
   transactions,
   currentUser,
-}: { transactions?: TransactionEntry[]; currentUser: CurrentUser }) {
+  onReverse,
+}: {
+  transactions?: TransactionEntry[];
+  currentUser: CurrentUser;
+  onReverse?: () => void;
+}) {
   const { actor } = useActor();
   const [expanded, setExpanded] = useState(false);
   const [localTxns, setLocalTxns] =
@@ -2045,6 +2085,7 @@ function GlobalTransactionHistory({
         reversalEntry.description || "",
       )
       .catch(() => {});
+    onReverse?.();
     refresh();
   };
 
@@ -9133,6 +9174,7 @@ function AdminSettingsPanel({
           <GlobalTransactionHistory
             transactions={transactions}
             currentUser={currentUser}
+            onReverse={onUpdate}
           />
 
           {/* ── Emergency Broadcast ── */}
@@ -12415,8 +12457,27 @@ export default function App() {
             const merged = [...newOnes, ...existing].slice(0, 500);
             localStorage.setItem("x_transactions_v1", JSON.stringify(merged));
           }
-          // Always update state with full canister set for real-time display
-          setAllTransactions(mapped.slice(0, 500));
+          // Preserve reversed/reversedBy from local, include local-only entries
+          const localAll = getTransactions();
+          const localMap = new Map(
+            localAll.map((t: TransactionEntry) => [`${t.ts}-${t.member}`, t]),
+          );
+          const canisterKeys = new Set(
+            mapped.map((t: TransactionEntry) => `${t.ts}-${t.member}`),
+          );
+          const mergedWithFlags = mapped.map((t: TransactionEntry) => {
+            const local = localMap.get(`${t.ts}-${t.member}`);
+            return local
+              ? { ...t, reversed: local.reversed, reversedBy: local.reversedBy }
+              : t;
+          });
+          const localOnly = localAll.filter(
+            (t: TransactionEntry) => !canisterKeys.has(`${t.ts}-${t.member}`),
+          );
+          const finalMerged = [...localOnly, ...mergedWithFlags]
+            .sort((a, b) => b.ts.localeCompare(a.ts))
+            .slice(0, 500);
+          setAllTransactions(finalMerged);
         }
       } catch {
         // ignore

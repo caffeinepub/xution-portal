@@ -1,24 +1,30 @@
 # XUTION Portal
 
 ## Current State
-Sector logs and admin feed have scrollable panels but no search. Font is not monospace. Personal fund management add/remove transactions do not appear in transaction history or global ledger.
+Version 66. Fund management has add/remove by user with search. Personal and global transaction histories exist. Global ledger has a REVERSE button. Purchases log transactions. However:
+- The canister poll overwrites `allTransactions` state without preserving `reversed`/`reversedBy` flags from local storage, so reversed entries un-reverse themselves after 5 seconds.
+- Reversal entries (new transaction with `REVERSED:` description) are logged locally and to canister but the original entry's `reversed: true` flag is not persisted to the canister, so it's lost on other devices.
+- Personal transaction history has no search bar.
+- Fund management add/remove descriptions could more clearly attribute who made the change and to whom.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Search bar above sector logs (filters by content/author)
-- Search bar above admin feed (filters by content/author)
-- Fund add/remove actions logged as transactions in personal history and global ledger
+- Search bar on personal transaction history
+- After reversal, immediately re-merge so `reversed` status persists in the UI without waiting for next poll
 
 ### Modify
-- Global font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace
-- addFunds/removeFunds create transaction entries visible in both personal history and global ledger
+- Canister poll merge: preserve `reversed`/`reversedBy` from local storage when updating `allTransactions` state; also include local-only entries (e.g. very recent reversals) not yet on canister
+- Fund adjustment descriptions: show `ADD FUNDS TO [member] BY [admin]` and `REMOVE FUNDS FROM [member] BY [admin]` so global ledger shows who was affected
+- Global ledger: after REVERSE, immediately update the allTransactions state (via callback or local re-merge) so UI reflects it without waiting 5 seconds
+- Personal transaction history: filter shows entries for current user from merged canister+local, including fund adjustments made by L6
 
 ### Remove
 - Nothing
 
 ## Implementation Plan
-1. Update global CSS font-family to monospace stack
-2. Add sectorLogSearch and adminFeedSearch state; filter logs/posts by term
-3. Render search input above each scrollable section
-4. On add/remove funds, push transaction record (type ADD_FUNDS/REMOVE_FUNDS, amount, member, timestamp) to transactions array used by personal history and global ledger
+1. Add `search` state to `PersonalTransactionHistory`; render a search input that filters `txns` by `t.description`
+2. Fix canister poll merge in the 5-second useEffect: after mapping canister results, merge with local to preserve `reversed`/`reversedBy` flags and include local-only entries
+3. In `handleReverse` (GlobalTransactionHistory), after updating localStorage, force a state refresh so `allTransactions` immediately reflects the reversed status — add an `onReverse` callback prop
+4. Update `handleAdjust` description to `ADD FUNDS TO ${adjustMember} BY ${currentUser.name}` and `REMOVE FUNDS FROM ${adjustMember} BY ${currentUser.name}` for clearer global ledger attribution
+5. Ensure `handleSet` description similarly shows `FUND SET FOR ${name} BY ${currentUser.name}`
