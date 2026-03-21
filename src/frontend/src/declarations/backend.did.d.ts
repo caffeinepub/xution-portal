@@ -110,6 +110,15 @@ export interface _SERVICE {
   'updateUserLevel' : ActorMethod<[string, bigint], undefined>,
   'updateUserAnswer' : ActorMethod<[string, string], undefined>,
   'userExists' : ActorMethod<[string], boolean>,
+  'setXutNumber' : ActorMethod<[string, string], undefined>,
+  'getXutNumber' : ActorMethod<[string], string>,
+  'getAllXutNumbers' : ActorMethod<[], Array<[string, string]>>,
+  'setMenuItemExtras' : ActorMethod<[string, string], undefined>,
+  'getMenuItemExtras' : ActorMethod<[string], string>,
+  'getAllMenuItemExtras' : ActorMethod<[], Array<[string, string]>>,
+  'setMemberExtras' : ActorMethod<[string, string], undefined>,
+  'getMemberExtras' : ActorMethod<[string], string>,
+  'getAllMemberExtras' : ActorMethod<[], Array<[string, string]>>,
 }
 export declare const idlService: IDL.ServiceClass;
 export declare const idlInitArgs: IDL.Type[];

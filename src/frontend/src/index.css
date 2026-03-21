@@ -68,7 +68,8 @@
   body {
     background: #020202;
     color: #e0e0e0;
-    font-family: "JetBrains Mono", "Courier New", monospace;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      "Liberation Mono", "Courier New", monospace;
     font-weight: 900;
     text-transform: uppercase;
     overflow-x: hidden;
@@ -79,13 +80,15 @@
   input,
   select,
   textarea {
-    font-family: "JetBrains Mono", "Courier New", monospace !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      "Liberation Mono", "Courier New", monospace !important;
     font-weight: 900 !important;
     text-transform: uppercase !important;
   }
 
   button {
-    font-family: "JetBrains Mono", "Courier New", monospace !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      "Liberation Mono", "Courier New", monospace !important;
     font-weight: 900 !important;
     text-transform: uppercase !important;
   }

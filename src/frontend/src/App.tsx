@@ -42,6 +42,7 @@ interface SectorLog {
   level: number;
   date: string;
   attachments?: LogAttachment[];
+  category?: string;
 }
 
 interface AdminPost {
@@ -97,6 +98,8 @@ interface TransactionEntry {
   changedBy: string;
   ts: string;
   description?: string;
+  reversed?: boolean;
+  reversedBy?: string;
 }
 
 interface MenuItem {
@@ -107,6 +110,20 @@ interface MenuItem {
   description: string;
   createdBy: string;
   stock?: number; // undefined = unlimited
+  category?: string;
+}
+
+interface MenuItemSupply {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  currentStock: number;
+  neededPerPurchase: number;
+}
+
+interface MenuItemExtras {
+  imageUrl?: string;
+  supplies?: MenuItemSupply[];
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -269,6 +286,48 @@ function getMemberTransactions(name: string): TransactionEntry[] {
   return getTransactions().filter((t) => t.member === name);
 }
 
+// ─── Category Helpers ──────────────────────────────────────────────────────
+const FACILITY_CATS_KEY = "x_facility_categories_v1";
+const SECTOR_CATS_KEY = "x_sector_categories_v1";
+
+function getFacilityCategories(facilityKey: string): string[] {
+  try {
+    const raw = localStorage.getItem(FACILITY_CATS_KEY);
+    const map: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+    return map[facilityKey] || [];
+  } catch {
+    return [];
+  }
+}
+
+function setFacilityCategories(facilityKey: string, cats: string[]) {
+  try {
+    const raw = localStorage.getItem(FACILITY_CATS_KEY);
+    const map: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+    map[facilityKey] = cats;
+    localStorage.setItem(FACILITY_CATS_KEY, JSON.stringify(map));
+  } catch {}
+}
+
+function getSectorCategories(sectorKey: string): string[] {
+  try {
+    const raw = localStorage.getItem(SECTOR_CATS_KEY);
+    const map: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+    return map[sectorKey] || [];
+  } catch {
+    return [];
+  }
+}
+
+function setSectorCategories(sectorKey: string, cats: string[]) {
+  try {
+    const raw = localStorage.getItem(SECTOR_CATS_KEY);
+    const map: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+    map[sectorKey] = cats;
+    localStorage.setItem(SECTOR_CATS_KEY, JSON.stringify(map));
+  } catch {}
+}
+
 function formatFunds(amount: number): string {
   return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
@@ -281,6 +340,41 @@ function getMenuItems(): MenuItem[] {
 
 function setMenuItems(items: MenuItem[]): void {
   localStorage.setItem("x_menu_items_v1", JSON.stringify(items));
+}
+
+function _getMenuItemExtrasLocal(id: string): MenuItemExtras {
+  const map = JSON.parse(localStorage.getItem("x_menu_item_extras_v1") || "{}");
+  try {
+    return JSON.parse(map[id] || "{}");
+  } catch {
+    return {};
+  }
+}
+function setMenuItemExtrasLocal(id: string, extras: MenuItemExtras) {
+  const map = JSON.parse(localStorage.getItem("x_menu_item_extras_v1") || "{}");
+  map[id] = JSON.stringify(extras);
+  localStorage.setItem("x_menu_item_extras_v1", JSON.stringify(map));
+}
+function getAllMenuItemExtrasMapLocal(): Record<string, MenuItemExtras> {
+  const map = JSON.parse(localStorage.getItem("x_menu_item_extras_v1") || "{}");
+  const result: Record<string, MenuItemExtras> = {};
+  for (const [k, v] of Object.entries(map)) {
+    try {
+      result[k] = JSON.parse(v as string);
+    } catch {
+      result[k] = {};
+    }
+  }
+  return result;
+}
+
+function getXutNumbersMap(): Record<string, string> {
+  return JSON.parse(localStorage.getItem("x_xut_numbers_v1") || "{}");
+}
+function setXutNumberLocal(name: string, num: string) {
+  const map = getXutNumbersMap();
+  map[name] = num;
+  localStorage.setItem("x_xut_numbers_v1", JSON.stringify(map));
 }
 
 function getFacilityMenu(facility: string): MenuItem[] {
@@ -1071,6 +1165,48 @@ function FundManagement({
   const [inputVals, setInputVals] = useState<Record<string, string>>({});
   const memberNames = Object.keys(db);
 
+  const [adjustSearch, setAdjustSearch] = useState("");
+  const [adjustMember, setAdjustMember] = useState("");
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const filteredMembers = adjustSearch.trim()
+    ? memberNames.filter((n) =>
+        n.toLowerCase().includes(adjustSearch.toLowerCase()),
+      )
+    : memberNames;
+
+  const handleAdjust = (dir: "add" | "remove") => {
+    const amt = Number.parseFloat(adjustAmount);
+    if (!adjustMember || Number.isNaN(amt) || amt <= 0) return;
+    const label = dir === "add" ? "ADD" : "REMOVE";
+    if (
+      !window.confirm(
+        `${label} ${formatFunds(amt)} ${dir === "add" ? "TO" : "FROM"} ${adjustMember}?`,
+      )
+    )
+      return;
+    const prev = getFunds(adjustMember);
+    const next = Number.parseFloat(
+      (dir === "add" ? prev + amt : Math.max(0, prev - amt)).toFixed(2),
+    );
+    setFunds(adjustMember, next);
+    const ts = new Date().toISOString();
+    const desc = `${label} FUNDS BY ${currentUser.name}`;
+    addTransaction({
+      member: adjustMember,
+      prevAmount: prev,
+      newAmount: next,
+      changedBy: currentUser.name,
+      ts,
+      description: desc,
+    });
+    setAdjustAmount("");
+    onUpdate();
+    actor?.setMemberFunds(adjustMember, next).catch(() => {});
+    actor
+      ?.addTransaction(adjustMember, prev, next, currentUser.name, ts, desc)
+      .catch(() => {});
+  };
+
   const handleSet = (name: string) => {
     const val = Number.parseFloat(inputVals[name] || "");
     if (Number.isNaN(val) || val < 0) return;
@@ -1156,6 +1292,116 @@ function FundManagement({
             padding: "10px 15px",
           }}
         >
+          {/* Adjust Funds */}
+          <div
+            style={{
+              marginBottom: "14px",
+              paddingBottom: "12px",
+              borderBottom: `1px solid ${S.red}44`,
+            }}
+          >
+            <div
+              style={{
+                fontSize: "0.65rem",
+                color: S.red,
+                letterSpacing: "2px",
+                marginBottom: "8px",
+                fontWeight: 900,
+              }}
+            >
+              ADJUST FUNDS
+            </div>
+            <input
+              type="text"
+              placeholder="SEARCH MEMBER..."
+              value={adjustSearch}
+              onChange={(e) => setAdjustSearch(e.target.value)}
+              data-ocid="fund.adjust.search_input"
+              style={{
+                ...inputStyle,
+                marginBottom: "6px",
+                fontSize: "0.7rem",
+                borderColor: `${S.red}66`,
+              }}
+            />
+            <select
+              value={adjustMember}
+              onChange={(e) => setAdjustMember(e.target.value)}
+              data-ocid="fund.adjust.select"
+              style={{
+                ...inputStyle,
+                marginBottom: "6px",
+                fontSize: "0.7rem",
+                background: "#111",
+                color: adjustMember ? S.white : S.dim,
+                cursor: "pointer",
+              }}
+            >
+              <option value="">-- SELECT MEMBER --</option>
+              {filteredMembers.map((n) => (
+                <option key={n} value={n}>
+                  {n} ({formatFunds(getFunds(n))})
+                </option>
+              ))}
+            </select>
+            <div
+              style={{
+                display: "flex",
+                gap: "8px",
+                alignItems: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <input
+                type="number"
+                placeholder="AMOUNT"
+                min={0}
+                step={0.01}
+                value={adjustAmount}
+                onChange={(e) => setAdjustAmount(e.target.value)}
+                data-ocid="fund.adjust.input"
+                style={{
+                  ...inputStyle,
+                  margin: 0,
+                  flex: 1,
+                  minWidth: "80px",
+                  fontSize: "0.7rem",
+                  height: "32px",
+                  padding: "6px 8px",
+                }}
+              />
+              <button
+                type="button"
+                data-ocid="fund.adjust.primary_button"
+                onClick={() => handleAdjust("add")}
+                style={{
+                  ...btnSmall,
+                  background: "#0a2a0a",
+                  color: S.green,
+                  border: `1px solid ${S.green}66`,
+                  fontWeight: 900,
+                }}
+              >
+                + ADD
+              </button>
+              <button
+                type="button"
+                data-ocid="fund.adjust.delete_button"
+                onClick={() => handleAdjust("remove")}
+                style={{
+                  ...btnSmall,
+                  background: "#2a0a0a",
+                  color: S.red,
+                  border: `1px solid ${S.red}66`,
+                  fontWeight: 900,
+                }}
+              >
+                − REMOVE
+              </button>
+            </div>
+          </div>
+
+          {/* Per-member SET section */}
           {memberNames.length === 0 ? (
             <div
               style={{
@@ -1277,10 +1523,22 @@ function PersonalTransactionHistory({
     return () => clearInterval(id);
   });
 
-  // Use canister-polled transactions if available (real-time cross-device)
-  const txns = transactions
-    ? transactions.filter((t) => t.member === currentUser.name)
-    : localTxns;
+  // Merge canister-polled transactions with local ones so fund adjustments appear immediately
+  const txns = (() => {
+    const canisterFiltered = transactions
+      ? transactions.filter((t) => t.member === currentUser.name)
+      : null;
+    if (!canisterFiltered) return localTxns;
+    const canisterKeys = new Set(
+      canisterFiltered.map((t) => `${t.ts}-${t.member}`),
+    );
+    const localExtra = localTxns.filter(
+      (t) => !canisterKeys.has(`${t.ts}-${t.member}`),
+    );
+    return [...localExtra, ...canisterFiltered].sort((a, b) =>
+      b.ts.localeCompare(a.ts),
+    );
+  })();
 
   return (
     <div style={{ marginBottom: "16px" }}>
@@ -1371,16 +1629,32 @@ function PersonalTransactionHistory({
                     <div
                       style={{
                         fontSize: "0.65rem",
-                        color: S.white,
+                        color: t.description?.startsWith("PURCHASE:")
+                          ? S.gold
+                          : S.white,
                         fontWeight: 900,
                         letterSpacing: "1px",
                         marginBottom: "2px",
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
+                        textDecoration: t.reversed ? "line-through" : "none",
+                        opacity: t.reversed ? 0.6 : 1,
                       }}
                     >
                       {t.description || "FUND UPDATE"}
+                      {t.reversed && (
+                        <span
+                          style={{
+                            marginLeft: "6px",
+                            color: S.red,
+                            fontSize: "0.55rem",
+                            fontWeight: 900,
+                          }}
+                        >
+                          [REVERSED]
+                        </span>
+                      )}
                     </div>
                     <div
                       style={{
@@ -1715,10 +1989,13 @@ function PersonalFundManagement({
 
 function GlobalTransactionHistory({
   transactions,
-}: { transactions?: TransactionEntry[] }) {
+  currentUser,
+}: { transactions?: TransactionEntry[]; currentUser: CurrentUser }) {
+  const { actor } = useActor();
   const [expanded, setExpanded] = useState(false);
   const [localTxns, setLocalTxns] =
     useState<TransactionEntry[]>(getTransactions);
+  const [ledgerSearch, setLedgerSearch] = useState("");
 
   const refresh = () => setLocalTxns(getTransactions());
 
@@ -1727,8 +2004,68 @@ function GlobalTransactionHistory({
     return () => clearInterval(id);
   });
 
-  // Use canister-polled transactions for real-time cross-device updates
-  const txns = transactions ?? localTxns;
+  const handleReverse = (t: TransactionEntry, idx: number) => {
+    if (t.reversed) return;
+    const reversedBy = `${currentUser.name} @ ${new Date().toISOString()}`;
+    // Update the original transaction
+    const all = getTransactions();
+    // Find the matching transaction by ts+member (use index as fallback)
+    const txIdx = all.findIndex(
+      (tx, i) => tx.ts === t.ts && tx.member === t.member && i === idx,
+    );
+    const targetIdx =
+      txIdx !== -1
+        ? txIdx
+        : all.findIndex((tx) => tx.ts === t.ts && tx.member === t.member);
+    if (targetIdx !== -1) {
+      all[targetIdx] = { ...all[targetIdx], reversed: true, reversedBy };
+      localStorage.setItem("x_transactions_v1", JSON.stringify(all));
+    }
+    // Create offsetting reversal transaction
+    const ts = new Date().toISOString();
+    const reversalEntry: TransactionEntry = {
+      member: t.member,
+      prevAmount: t.newAmount,
+      newAmount: t.prevAmount,
+      changedBy: currentUser.name,
+      ts,
+      description: `REVERSED: ${t.description || "FUND UPDATE"} (original: ${t.ts})`,
+    };
+    addTransaction(reversalEntry);
+    // Restore member balance
+    setFunds(t.member, t.prevAmount);
+    actor?.setMemberFunds(t.member, t.prevAmount).catch(() => {});
+    actor
+      ?.addTransaction(
+        t.member,
+        t.newAmount,
+        t.prevAmount,
+        currentUser.name,
+        ts,
+        reversalEntry.description || "",
+      )
+      .catch(() => {});
+    refresh();
+  };
+
+  // Merge canister-polled transactions with local ones for immediate visibility
+  const allTxns = (() => {
+    if (!transactions) return localTxns;
+    const canisterKeys = new Set(
+      transactions.map((t) => `${t.ts}-${t.member}`),
+    );
+    const localExtra = localTxns.filter(
+      (t) => !canisterKeys.has(`${t.ts}-${t.member}`),
+    );
+    return [...localExtra, ...transactions].sort((a, b) =>
+      b.ts.localeCompare(a.ts),
+    );
+  })();
+  const txns = ledgerSearch.trim()
+    ? allTxns.filter((t) =>
+        t.member.toLowerCase().includes(ledgerSearch.toLowerCase()),
+      )
+    : allTxns;
 
   return (
     <div style={{ marginBottom: "30px" }}>
@@ -1784,31 +2121,47 @@ function GlobalTransactionHistory({
             padding: "10px 15px",
           }}
         >
+          {/* User search */}
+          <input
+            type="text"
+            placeholder="SEARCH BY USERNAME..."
+            value={ledgerSearch}
+            onChange={(e) => setLedgerSearch(e.target.value)}
+            data-ocid="fund.ledger.search_input"
+            style={{
+              ...inputStyle,
+              marginBottom: "10px",
+              fontSize: "0.7rem",
+              borderColor: `${S.red}66`,
+            }}
+          />
           {/* Column headers */}
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr 1fr",
+              gridTemplateColumns: "1fr 2fr 1fr 1.5fr 80px",
               gap: "8px",
               paddingBottom: "8px",
               borderBottom: `1px solid ${S.red}44`,
               marginBottom: "6px",
             }}
           >
-            {["MEMBER", "PREV", "NEW", "BY / DATE"].map((col) => (
-              <div
-                key={col}
-                style={{
-                  fontSize: "0.55rem",
-                  color: S.red,
-                  fontWeight: 900,
-                  letterSpacing: "1px",
-                  textTransform: "uppercase",
-                }}
-              >
-                {col}
-              </div>
-            ))}
+            {["MEMBER", "DESCRIPTION", "AMOUNT", "BY / DATE", "ACTION"].map(
+              (col) => (
+                <div
+                  key={col}
+                  style={{
+                    fontSize: "0.55rem",
+                    color: S.red,
+                    fontWeight: 900,
+                    letterSpacing: "1px",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {col}
+                </div>
+              ),
+            )}
           </div>
 
           <div
@@ -1839,39 +2192,63 @@ function GlobalTransactionHistory({
                     key={`gtx-${t.ts}-${i}`}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1fr 1fr 1fr 1fr",
+                      gridTemplateColumns: "1fr 2fr 1fr 1.5fr 80px",
                       gap: "8px",
                       padding: "6px 0",
                       borderBottom: `1px solid ${S.brd}`,
                       alignItems: "center",
+                      opacity: t.reversed ? 0.6 : 1,
                     }}
                   >
                     <div
                       style={{
                         fontSize: "0.65rem",
-                        color: S.white,
+                        color: t.reversed ? S.dim : S.white,
                         fontWeight: 900,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
+                        textDecoration: t.reversed ? "line-through" : "none",
                       }}
                     >
                       {t.member}
                     </div>
-                    <div
-                      style={{
-                        fontSize: "0.65rem",
-                        color: S.dim,
-                        fontWeight: 900,
-                      }}
-                    >
-                      {formatFunds(t.prevAmount)}
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: "0.6rem",
+                          color: t.description?.startsWith("PURCHASE:")
+                            ? S.gold
+                            : t.description?.startsWith("REVERSED:")
+                              ? S.red
+                              : S.dim,
+                          fontWeight: 700,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          textDecoration: t.reversed ? "line-through" : "none",
+                        }}
+                      >
+                        {t.description || "FUND UPDATE"}
+                      </div>
+                      {t.reversed && (
+                        <div
+                          style={{
+                            fontSize: "0.5rem",
+                            color: S.red,
+                            fontWeight: 900,
+                          }}
+                        >
+                          [REVERSED]
+                        </div>
+                      )}
                     </div>
                     <div
                       style={{
                         fontSize: "0.65rem",
                         fontWeight: 900,
                         color: isPositive ? S.green : S.red,
+                        textDecoration: t.reversed ? "line-through" : "none",
                       }}
                     >
                       {formatFunds(t.newAmount)}
@@ -1911,6 +2288,29 @@ function GlobalTransactionHistory({
                       >
                         {new Date(t.ts).toLocaleString()}
                       </div>
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        disabled={!!t.reversed}
+                        onClick={() => handleReverse(t, i)}
+                        style={{
+                          background: t.reversed ? "#1a0000" : "#2a0000",
+                          border: `1px solid ${t.reversed ? "#330000" : S.red}`,
+                          color: t.reversed ? "#550000" : S.red,
+                          cursor: t.reversed ? "not-allowed" : "pointer",
+                          fontFamily:
+                            "'JetBrains Mono', 'Courier New', monospace",
+                          fontWeight: 900,
+                          fontSize: "0.5rem",
+                          padding: "3px 6px",
+                          textTransform: "uppercase",
+                          letterSpacing: "1px",
+                          width: "100%",
+                        }}
+                      >
+                        {t.reversed ? "DONE" : "REVERSE"}
+                      </button>
                     </div>
                   </div>
                 );
@@ -4213,6 +4613,7 @@ function MemberRow({
   isFav,
   onDM,
   onFavToggle,
+  xutNumbers,
 }: {
   memberName: string;
   db: UserDB;
@@ -4223,6 +4624,7 @@ function MemberRow({
   onFavToggle: (name: string) => void;
   onChangeLvl: (name: string, change: number) => void;
   onDel: (name: string) => void;
+  xutNumbers?: Record<string, string>;
 }) {
   const isSelf = memberName === currentUser.name;
   const [unread, setUnread] = useState(() =>
@@ -4310,7 +4712,21 @@ function MemberRow({
           }}
           title={isSelf ? undefined : `DM ${memberName}`}
         >
-          {memberName} [L{db[memberName]?.lvl ?? "?"}]{/* Presence badge */}
+          {memberName} [L{db[memberName]?.lvl ?? "?"}]
+          {(db[memberName]?.lvl ?? 0) >= 5 && xutNumbers?.[memberName] && (
+            <span
+              style={{
+                color: S.gold,
+                fontSize: "0.55rem",
+                marginLeft: "6px",
+                fontWeight: 900,
+                letterSpacing: "1px",
+              }}
+            >
+              XUT#{xutNumbers[memberName]}
+            </span>
+          )}
+          {/* Presence badge */}
           <span
             style={{
               color: memberOnline ? "#00ff41" : "#444",
@@ -4847,11 +5263,13 @@ function MemberList({
   onActivity,
   onDM,
   lockdown,
+  xutNumbers,
 }: {
   currentUser: CurrentUser;
   onActivity: () => void;
   onDM: (name: string) => void;
   lockdown: boolean;
+  xutNumbers?: Record<string, string>;
 }) {
   const { actor } = useActor();
   const [db, setDbState] = useState<UserDB>(getDB);
@@ -4925,6 +5343,7 @@ function MemberList({
     onFavToggle: handleFavToggle,
     onChangeLvl: changeLvl,
     onDel: delMem,
+    xutNumbers,
   };
 
   return (
@@ -5419,6 +5838,13 @@ function FacilityMenu({
   const [newDesc, setNewDesc] = useState("");
   const [newPrice, setNewPrice] = useState("");
   const [newStock, setNewStock] = useState(""); // empty = unlimited
+  const [newItemImage, setNewItemImage] = useState<string | undefined>(
+    undefined,
+  );
+  const [newSupplies, setNewSupplies] = useState<MenuItemSupply[]>([]);
+  const [extrasMap, setExtrasMap] = useState<Record<string, MenuItemExtras>>(
+    () => getAllMenuItemExtrasMapLocal(),
+  );
   const [stockInputs, setStockInputs] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successIds, setSuccessIds] = useState<Record<string, boolean>>({});
@@ -5426,6 +5852,19 @@ function FacilityMenu({
     getFunds(currentUser.name),
   );
   const [pendingItem, setPendingItem] = useState<MenuItem | null>(null);
+  const [facilityCategories, setFacilityCategoriesState] = useState<string[]>(
+    () => getFacilityCategories(facility),
+  );
+  const [selectedCategoryFilter, setSelectedCategoryFilter] =
+    useState<string>("ALL");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [selectedItemCategory, setSelectedItemCategory] = useState<string>("");
+  const [catMgrOpen, setCatMgrOpen] = useState(false);
+
+  useEffect(() => {
+    setFacilityCategoriesState(getFacilityCategories(facility));
+    setSelectedCategoryFilter("ALL");
+  }, [facility]);
 
   useEffect(() => {
     setItemsState(getFacilityMenu(facility));
@@ -5470,6 +5909,23 @@ function FacilityMenu({
       const newStock = Math.max(0, item.stock - 1);
       actor
         ?.updateMenuItemStock(item.id, localStockToCanister(newStock))
+        .catch(() => {});
+    }
+    // Decrement supplies if any
+    const currentExtras = extrasMap[item.id] || {};
+    if (currentExtras.supplies && currentExtras.supplies.length > 0) {
+      const updatedSupplies = currentExtras.supplies.map((s) => ({
+        ...s,
+        currentStock: Math.max(0, s.currentStock - s.neededPerPurchase),
+      }));
+      const updatedExtras: MenuItemExtras = {
+        ...currentExtras,
+        supplies: updatedSupplies,
+      };
+      setMenuItemExtrasLocal(item.id, updatedExtras);
+      setExtrasMap((prev) => ({ ...prev, [item.id]: updatedExtras }));
+      actor
+        ?.setMenuItemExtras(item.id, JSON.stringify(updatedExtras))
         .catch(() => {});
     }
     const ts = new Date().toISOString();
@@ -5527,13 +5983,24 @@ function FacilityMenu({
       description: newDesc.trim(),
       createdBy: currentUser.name,
       stock: parsedStock,
+      category: selectedItemCategory || undefined,
     };
     allItems.push(newItem);
     setMenuItems(allItems);
+    // Save extras (image + supplies)
+    const newExtras: MenuItemExtras = {
+      imageUrl: newItemImage,
+      supplies: newSupplies,
+    };
+    setMenuItemExtrasLocal(newItem.id, newExtras);
+    setExtrasMap((prev) => ({ ...prev, [newItem.id]: newExtras }));
     setNewName("");
     setNewDesc("");
     setNewPrice("");
     setNewStock("");
+    setNewItemImage(undefined);
+    setNewSupplies([]);
+    setSelectedItemCategory("");
     addActivity(`MENU ITEM ADDED: ${name} TO ${facility}`);
     onActivity();
     refreshItems();
@@ -5547,6 +6014,11 @@ function FacilityMenu({
         currentUser.name,
         localStockToCanister(parsedStock),
       )
+      .then(() => {
+        actor
+          ?.setMenuItemExtras(newItem.id, JSON.stringify(newExtras))
+          .catch(() => {});
+      })
       .catch(() => {});
   };
 
@@ -5604,6 +6076,191 @@ function FacilityMenu({
         >
           FACILITY MENU
         </p>
+
+        {/* L6: Category Management */}
+        {isSovereign && (
+          <div style={{ marginBottom: "12px" }}>
+            <button
+              type="button"
+              onClick={() => setCatMgrOpen((v) => !v)}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: S.dim,
+                cursor: "pointer",
+                fontSize: "0.6rem",
+                letterSpacing: "2px",
+                padding: "0 0 6px 0",
+                fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              }}
+            >
+              {catMgrOpen ? "▲" : "▼"} CATEGORIES [{facilityCategories.length}]
+            </button>
+            {catMgrOpen && (
+              <div
+                style={{
+                  background: "#0a0a0a",
+                  border: `1px solid ${S.brd}`,
+                  padding: "8px",
+                  marginBottom: "8px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "4px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {facilityCategories.length === 0 && (
+                    <span style={{ fontSize: "0.6rem", color: S.dim }}>
+                      NO CATEGORIES YET
+                    </span>
+                  )}
+                  {facilityCategories.map((cat) => (
+                    <span
+                      key={cat}
+                      style={{
+                        background: "#1a1a1a",
+                        border: "1px solid #333",
+                        borderRadius: "4px",
+                        padding: "2px 8px",
+                        fontSize: "0.7rem",
+                        color: "#aaa",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                      }}
+                    >
+                      {cat}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = facilityCategories.filter(
+                            (c) => c !== cat,
+                          );
+                          setFacilityCategories(facility, updated);
+                          setFacilityCategoriesState(updated);
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: S.red,
+                          cursor: "pointer",
+                          fontSize: "0.7rem",
+                          padding: "0",
+                          lineHeight: 1,
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <input
+                    type="text"
+                    placeholder="NEW CATEGORY..."
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && newCategoryName.trim()) {
+                        const cat = newCategoryName.trim().toUpperCase();
+                        if (!facilityCategories.includes(cat)) {
+                          const updated = [...facilityCategories, cat];
+                          setFacilityCategories(facility, updated);
+                          setFacilityCategoriesState(updated);
+                        }
+                        setNewCategoryName("");
+                      }
+                    }}
+                    style={{
+                      ...inputStyle,
+                      flex: 1,
+                      fontSize: "0.65rem",
+                      marginBottom: 0,
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cat = newCategoryName.trim().toUpperCase();
+                      if (cat && !facilityCategories.includes(cat)) {
+                        const updated = [...facilityCategories, cat];
+                        setFacilityCategories(facility, updated);
+                        setFacilityCategoriesState(updated);
+                      }
+                      setNewCategoryName("");
+                    }}
+                    style={{
+                      ...btnSmall,
+                      background: "#1a1500",
+                      color: S.gold,
+                      border: `1px solid ${S.gold}44`,
+                      fontSize: "0.65rem",
+                    }}
+                  >
+                    ADD
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Category filter tabs */}
+        {facilityCategories.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: "4px",
+              marginBottom: "12px",
+            }}
+          >
+            {["ALL", ...facilityCategories].map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                onClick={() => setSelectedCategoryFilter(cat)}
+                style={{
+                  background:
+                    selectedCategoryFilter === cat ? "#1a1500" : "#111",
+                  border: `1px solid ${selectedCategoryFilter === cat ? S.gold : "#333"}`,
+                  color: selectedCategoryFilter === cat ? S.gold : "#aaa",
+                  borderRadius: "4px",
+                  padding: "2px 10px",
+                  fontSize: "0.6rem",
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                  fontWeight: 900,
+                  cursor: "pointer",
+                  letterSpacing: "1px",
+                }}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {items.filter(
+          (item) =>
+            selectedCategoryFilter === "ALL" ||
+            item.category === selectedCategoryFilter,
+        ).length === 0 && items.length > 0 ? (
+          <p
+            style={{
+              color: S.dim,
+              fontSize: "0.65rem",
+              letterSpacing: "2px",
+              marginBottom: "12px",
+            }}
+          >
+            NO ITEMS IN THIS CATEGORY
+          </p>
+        ) : null}
+
         {items.length === 0 ? (
           <p
             style={{
@@ -5617,144 +6274,276 @@ function FacilityMenu({
           </p>
         ) : (
           <div style={{ marginBottom: "12px" }}>
-            {items.map((item) => {
-              const isSoldOut = item.stock !== undefined && item.stock <= 0;
-              return (
-                <div
-                  key={item.id}
-                  style={{
-                    padding: "10px 12px",
-                    marginBottom: "8px",
-                    background: isSoldOut ? "#0a0505" : "#050505",
-                    border: `1px solid ${isSoldOut ? `${S.red}55` : S.brd}`,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "6px",
-                    opacity: isSoldOut ? 0.75 : 1,
-                  }}
-                >
+            {items
+              .filter(
+                (item) =>
+                  selectedCategoryFilter === "ALL" ||
+                  item.category === selectedCategoryFilter,
+              )
+              .map((item) => {
+                const itemExtras = extrasMap[item.id] || {};
+                const supplySoldOut = (itemExtras.supplies || []).some(
+                  (s) => s.currentStock < s.neededPerPurchase,
+                );
+                const isSoldOut =
+                  (item.stock !== undefined && item.stock <= 0) ||
+                  supplySoldOut;
+                return (
                   <div
+                    key={item.id}
                     style={{
+                      padding: "10px 12px",
+                      marginBottom: "8px",
+                      background: isSoldOut ? "#0a0505" : "#050505",
+                      border: `1px solid ${isSoldOut ? `${S.red}55` : S.brd}`,
                       display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: "10px",
+                      flexDirection: "column",
+                      gap: "6px",
+                      opacity: isSoldOut ? 0.75 : 1,
                     }}
                   >
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div
+                    {itemExtras.imageUrl && (
+                      <img
+                        src={itemExtras.imageUrl}
+                        alt={item.name}
                         style={{
-                          fontSize: "0.75rem",
-                          color: isSoldOut ? S.dim : S.white,
-                          fontWeight: 900,
-                          letterSpacing: "1px",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          flexWrap: "wrap",
+                          width: "100%",
+                          maxHeight: "120px",
+                          objectFit: "cover",
+                          borderRadius: "4px",
+                          marginBottom: "4px",
+                          opacity: isSoldOut ? 0.5 : 1,
                         }}
-                      >
-                        {item.name}
-                        {isSoldOut && (
-                          <span
+                      />
+                    )}
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "10px",
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: "0.75rem",
+                            color: isSoldOut ? S.dim : S.white,
+                            fontWeight: 900,
+                            letterSpacing: "1px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          {item.name}
+                          {isSoldOut && (
+                            <span
+                              style={{
+                                fontSize: "0.55rem",
+                                color: S.red,
+                                border: `1px solid ${S.red}`,
+                                padding: "1px 5px",
+                                letterSpacing: "2px",
+                                fontWeight: 900,
+                              }}
+                            >
+                              SOLD OUT
+                            </span>
+                          )}
+                        </div>
+                        {item.description && (
+                          <div
+                            style={{
+                              fontSize: "0.6rem",
+                              color: S.dim,
+                              letterSpacing: "1px",
+                              marginTop: "2px",
+                            }}
+                          >
+                            {item.description}
+                          </div>
+                        )}
+                        {/* Stock indicator */}
+                        {item.stock !== undefined && (
+                          <div
                             style={{
                               fontSize: "0.55rem",
-                              color: S.red,
-                              border: `1px solid ${S.red}`,
-                              padding: "1px 5px",
-                              letterSpacing: "2px",
+                              color: isSoldOut
+                                ? S.red
+                                : item.stock <= 5
+                                  ? "#ffaa00"
+                                  : S.green,
+                              letterSpacing: "1px",
+                              marginTop: "3px",
                               fontWeight: 900,
                             }}
                           >
-                            SOLD OUT
-                          </span>
+                            STOCK: {item.stock}
+                          </div>
                         )}
+                        {/* Supplies indicator */}
+                        {itemExtras.supplies &&
+                          itemExtras.supplies.length > 0 && (
+                            <div style={{ marginTop: "4px" }}>
+                              {itemExtras.supplies.map((s) => {
+                                const low =
+                                  s.currentStock < s.neededPerPurchase;
+                                return (
+                                  <div
+                                    key={s.id}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: "6px",
+                                      marginBottom: "3px",
+                                    }}
+                                  >
+                                    {s.imageUrl && (
+                                      <img
+                                        src={s.imageUrl}
+                                        alt={s.name}
+                                        style={{
+                                          width: "20px",
+                                          height: "20px",
+                                          objectFit: "cover",
+                                          borderRadius: "2px",
+                                        }}
+                                      />
+                                    )}
+                                    <span
+                                      style={{
+                                        fontSize: "0.55rem",
+                                        color: low ? S.red : S.dim,
+                                        letterSpacing: "0.5px",
+                                      }}
+                                    >
+                                      {s.name}: {s.currentStock}/
+                                      {s.neededPerPurchase} per sale
+                                      {low && (
+                                        <span
+                                          style={{
+                                            color: S.red,
+                                            marginLeft: "4px",
+                                            fontWeight: 900,
+                                          }}
+                                        >
+                                          ⚠ LOW
+                                        </span>
+                                      )}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                       </div>
-                      {item.description && (
-                        <div
-                          style={{
-                            fontSize: "0.6rem",
-                            color: S.dim,
-                            letterSpacing: "1px",
-                            marginTop: "2px",
-                          }}
-                        >
-                          {item.description}
-                        </div>
-                      )}
-                      {/* Stock indicator */}
-                      {item.stock !== undefined && (
-                        <div
-                          style={{
-                            fontSize: "0.55rem",
-                            color: isSoldOut
-                              ? S.red
-                              : item.stock <= 5
-                                ? "#ffaa00"
-                                : S.green,
-                            letterSpacing: "1px",
-                            marginTop: "3px",
-                            fontWeight: 900,
-                          }}
-                        >
-                          STOCK: {item.stock}
-                        </div>
-                      )}
+                      <div
+                        style={{
+                          fontSize: "0.8rem",
+                          color: S.gold,
+                          fontWeight: 900,
+                          letterSpacing: "1px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {formatFunds(item.price)}
+                      </div>
                     </div>
                     <div
-                      style={{
-                        fontSize: "0.8rem",
-                        color: S.gold,
-                        fontWeight: 900,
-                        letterSpacing: "1px",
-                        flexShrink: 0,
-                      }}
+                      style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
                     >
-                      {formatFunds(item.price)}
-                    </div>
-                  </div>
-                  <div
-                    style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}
-                  >
-                    <button
-                      type="button"
-                      disabled={isSoldOut}
-                      style={{
-                        ...btnSmall,
-                        background: isSoldOut ? S.dim : S.gold,
-                        color: isSoldOut ? "#888" : "#000",
-                        flex: "none",
-                        padding: "7px 14px",
-                        cursor: isSoldOut ? "not-allowed" : "pointer",
-                      }}
-                      onClick={() => !isSoldOut && handlePurchase(item)}
-                    >
-                      {isSoldOut ? "SOLD OUT" : "PURCHASE"}
-                    </button>
-                    {isSovereign && (
-                      <>
-                        {/* Stock adjustment controls */}
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <button
-                            type="button"
-                            title="Decrease stock by 1"
+                      <button
+                        type="button"
+                        disabled={isSoldOut}
+                        style={{
+                          ...btnSmall,
+                          background: isSoldOut ? S.dim : S.gold,
+                          color: isSoldOut ? "#888" : "#000",
+                          flex: "none",
+                          padding: "7px 14px",
+                          cursor: isSoldOut ? "not-allowed" : "pointer",
+                        }}
+                        onClick={() => !isSoldOut && handlePurchase(item)}
+                      >
+                        {isSoldOut ? "SOLD OUT" : "PURCHASE"}
+                      </button>
+                      {isSovereign && (
+                        <>
+                          {/* Stock adjustment controls */}
+                          <div
                             style={{
-                              ...btnSmall,
-                              background: "#222",
-                              color: S.white,
-                              flex: "none",
-                              padding: "7px 8px",
-                              fontSize: "0.8rem",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
                             }}
-                            onClick={() => {
-                              if (item.stock !== undefined) {
-                                const newStk = Math.max(0, item.stock - 1);
+                          >
+                            <button
+                              type="button"
+                              title="Decrease stock by 1"
+                              style={{
+                                ...btnSmall,
+                                background: "#222",
+                                color: S.white,
+                                flex: "none",
+                                padding: "7px 8px",
+                                fontSize: "0.8rem",
+                              }}
+                              onClick={() => {
+                                if (item.stock !== undefined) {
+                                  const newStk = Math.max(0, item.stock - 1);
+                                  updateMenuItemStock(item.id, newStk);
+                                  refreshItems();
+                                  actor
+                                    ?.updateMenuItemStock(
+                                      item.id,
+                                      localStockToCanister(newStk),
+                                    )
+                                    .catch(() => {});
+                                }
+                              }}
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              min={0}
+                              placeholder="QTY"
+                              value={stockInputs[item.id] ?? ""}
+                              onChange={(e) =>
+                                setStockInputs((prev) => ({
+                                  ...prev,
+                                  [item.id]: e.target.value,
+                                }))
+                              }
+                              onKeyDown={(e) =>
+                                e.key === "Enter" && handleSetStock(item)
+                              }
+                              style={{
+                                ...inputStyle,
+                                margin: 0,
+                                width: "60px",
+                                padding: "6px 6px",
+                                fontSize: "0.65rem",
+                                height: "32px",
+                                textAlign: "center",
+                              }}
+                            />
+                            <button
+                              type="button"
+                              title="Increase stock by 1"
+                              style={{
+                                ...btnSmall,
+                                background: "#222",
+                                color: S.white,
+                                flex: "none",
+                                padding: "7px 8px",
+                                fontSize: "0.8rem",
+                              }}
+                              onClick={() => {
+                                const cur = item.stock ?? 0;
+                                const newStk = cur + 1;
                                 updateMenuItemStock(item.id, newStk);
                                 refreshItems();
                                 actor
@@ -5763,122 +6552,71 @@ function FacilityMenu({
                                     localStockToCanister(newStk),
                                   )
                                   .catch(() => {});
-                              }
-                            }}
-                          >
-                            -
-                          </button>
-                          <input
-                            type="number"
-                            min={0}
-                            placeholder="QTY"
-                            value={stockInputs[item.id] ?? ""}
-                            onChange={(e) =>
-                              setStockInputs((prev) => ({
-                                ...prev,
-                                [item.id]: e.target.value,
-                              }))
-                            }
-                            onKeyDown={(e) =>
-                              e.key === "Enter" && handleSetStock(item)
-                            }
-                            style={{
-                              ...inputStyle,
-                              margin: 0,
-                              width: "60px",
-                              padding: "6px 6px",
-                              fontSize: "0.65rem",
-                              height: "32px",
-                              textAlign: "center",
-                            }}
-                          />
+                              }}
+                            >
+                              +
+                            </button>
+                            <button
+                              type="button"
+                              title="Set stock to entered value"
+                              style={{
+                                ...btnSmall,
+                                background: S.blue,
+                                color: "#000",
+                                flex: "none",
+                                padding: "7px 8px",
+                                fontSize: "0.6rem",
+                              }}
+                              onClick={() => handleSetStock(item)}
+                            >
+                              SET
+                            </button>
+                          </div>
                           <button
                             type="button"
-                            title="Increase stock by 1"
                             style={{
                               ...btnSmall,
-                              background: "#222",
-                              color: S.white,
+                              background: S.red,
+                              color: "#fff",
                               flex: "none",
-                              padding: "7px 8px",
-                              fontSize: "0.8rem",
+                              padding: "7px 10px",
                             }}
-                            onClick={() => {
-                              const cur = item.stock ?? 0;
-                              const newStk = cur + 1;
-                              updateMenuItemStock(item.id, newStk);
-                              refreshItems();
-                              actor
-                                ?.updateMenuItemStock(
-                                  item.id,
-                                  localStockToCanister(newStk),
-                                )
-                                .catch(() => {});
-                            }}
+                            onClick={() => handleDeleteItem(item.id)}
                           >
-                            +
+                            DELETE
                           </button>
-                          <button
-                            type="button"
-                            title="Set stock to entered value"
-                            style={{
-                              ...btnSmall,
-                              background: S.blue,
-                              color: "#000",
-                              flex: "none",
-                              padding: "7px 8px",
-                              fontSize: "0.6rem",
-                            }}
-                            onClick={() => handleSetStock(item)}
-                          >
-                            SET
-                          </button>
-                        </div>
-                        <button
-                          type="button"
+                        </>
+                      )}
+                      {errors[item.id] && (
+                        <span
                           style={{
-                            ...btnSmall,
-                            background: S.red,
-                            color: "#fff",
-                            flex: "none",
-                            padding: "7px 10px",
+                            fontSize: "0.6rem",
+                            color: S.red,
+                            fontWeight: 900,
+                            letterSpacing: "1px",
+                            alignSelf: "center",
                           }}
-                          onClick={() => handleDeleteItem(item.id)}
                         >
-                          DELETE
-                        </button>
-                      </>
-                    )}
-                    {errors[item.id] && (
-                      <span
-                        style={{
-                          fontSize: "0.6rem",
-                          color: S.red,
-                          fontWeight: 900,
-                          letterSpacing: "1px",
-                          alignSelf: "center",
-                        }}
-                      >
-                        ⚠ {errors[item.id]}
-                      </span>
-                    )}
-                    {successIds[item.id] && (
-                      <span
-                        style={{
-                          fontSize: "0.6rem",
-                          color: S.green,
-                          fontWeight: 900,
-                          letterSpacing: "1px",
-                          alignSelf: "center",
-                        }}
-                      >
-                        ✓ APPROVED
-                      </span>
-                    )}
+                          ⚠ {errors[item.id]}
+                        </span>
+                      )}
+                      {successIds[item.id] && (
+                        <span
+                          style={{
+                            fontSize: "0.6rem",
+                            color: S.green,
+                            fontWeight: 900,
+                            letterSpacing: "1px",
+                            alignSelf: "center",
+                          }}
+                        >
+                          ✓ APPROVED
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
         )}
         {/* Sold Out Log */}
@@ -6045,6 +6783,307 @@ function FacilityMenu({
                   onKeyDown={(e) => e.key === "Enter" && handleAddItem()}
                   style={{ ...inputStyle, marginBottom: "0" }}
                 />
+                {/* Item Image */}
+                <div style={{ marginTop: "8px" }}>
+                  <p
+                    style={{
+                      color: S.dim,
+                      fontSize: "0.6rem",
+                      letterSpacing: "2px",
+                      margin: "0 0 4px 0",
+                    }}
+                  >
+                    ITEM IMAGE (OPTIONAL)
+                  </p>
+                  {newItemImage && (
+                    <div
+                      style={{
+                        position: "relative",
+                        display: "inline-block",
+                        marginBottom: "6px",
+                      }}
+                    >
+                      <img
+                        src={newItemImage}
+                        alt="preview"
+                        style={{
+                          width: "80px",
+                          height: "60px",
+                          objectFit: "cover",
+                          borderRadius: "4px",
+                          border: `1px solid ${S.gold}44`,
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setNewItemImage(undefined)}
+                        style={{
+                          position: "absolute",
+                          top: "-6px",
+                          right: "-6px",
+                          background: S.red,
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: "50%",
+                          width: "16px",
+                          height: "16px",
+                          fontSize: "0.55rem",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                  <label
+                    style={{
+                      ...btnSmall,
+                      background: "#1a1500",
+                      color: S.gold,
+                      border: `1px solid ${S.gold}44`,
+                      cursor: "pointer",
+                      display: "inline-block",
+                    }}
+                  >
+                    {newItemImage ? "CHANGE IMAGE" : "UPLOAD IMAGE"}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) =>
+                          setNewItemImage(ev.target?.result as string);
+                        reader.readAsDataURL(file);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+                {/* Supplies */}
+                <div style={{ marginTop: "10px" }}>
+                  <p
+                    style={{
+                      color: S.dim,
+                      fontSize: "0.6rem",
+                      letterSpacing: "2px",
+                      margin: "0 0 6px 0",
+                    }}
+                  >
+                    SUPPLIES NEEDED PER PURCHASE
+                  </p>
+                  {newSupplies.map((supply, idx) => (
+                    <div
+                      key={supply.id}
+                      style={{
+                        background: "#0a0a0a",
+                        border: `1px solid ${S.brd}`,
+                        padding: "8px",
+                        marginBottom: "6px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "6px",
+                          alignItems: "center",
+                        }}
+                      >
+                        {supply.imageUrl && (
+                          <img
+                            src={supply.imageUrl}
+                            alt={supply.name}
+                            style={{
+                              width: "32px",
+                              height: "32px",
+                              objectFit: "cover",
+                              borderRadius: "3px",
+                            }}
+                          />
+                        )}
+                        <input
+                          type="text"
+                          placeholder="SUPPLY NAME"
+                          value={supply.name}
+                          onChange={(e) =>
+                            setNewSupplies((prev) =>
+                              prev.map((s, i) =>
+                                i === idx ? { ...s, name: e.target.value } : s,
+                              ),
+                            )
+                          }
+                          style={{
+                            ...inputStyle,
+                            margin: 0,
+                            flex: 1,
+                            padding: "4px 6px",
+                            fontSize: "0.6rem",
+                            height: "26px",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setNewSupplies((prev) =>
+                              prev.filter((_, i) => i !== idx),
+                            )
+                          }
+                          style={{
+                            ...btnSmall,
+                            background: "#2a0000",
+                            color: S.red,
+                            border: `1px solid ${S.red}44`,
+                            padding: "4px 8px",
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <input
+                          type="number"
+                          placeholder="CURRENT STOCK"
+                          min={0}
+                          value={
+                            supply.currentStock === 0 ? "" : supply.currentStock
+                          }
+                          onChange={(e) =>
+                            setNewSupplies((prev) =>
+                              prev.map((s, i) =>
+                                i === idx
+                                  ? {
+                                      ...s,
+                                      currentStock: Number(e.target.value) || 0,
+                                    }
+                                  : s,
+                              ),
+                            )
+                          }
+                          style={{
+                            ...inputStyle,
+                            margin: 0,
+                            flex: 1,
+                            padding: "4px 6px",
+                            fontSize: "0.6rem",
+                            height: "26px",
+                          }}
+                        />
+                        <input
+                          type="number"
+                          placeholder="NEEDED/PURCHASE"
+                          min={1}
+                          value={
+                            supply.neededPerPurchase === 0
+                              ? ""
+                              : supply.neededPerPurchase
+                          }
+                          onChange={(e) =>
+                            setNewSupplies((prev) =>
+                              prev.map((s, i) =>
+                                i === idx
+                                  ? {
+                                      ...s,
+                                      neededPerPurchase:
+                                        Number(e.target.value) || 1,
+                                    }
+                                  : s,
+                              ),
+                            )
+                          }
+                          style={{
+                            ...inputStyle,
+                            margin: 0,
+                            flex: 1,
+                            padding: "4px 6px",
+                            fontSize: "0.6rem",
+                            height: "26px",
+                          }}
+                        />
+                      </div>
+                      <label
+                        style={{
+                          ...btnSmall,
+                          background: "#0a0a1a",
+                          color: S.blue,
+                          border: `1px solid ${S.blue}44`,
+                          cursor: "pointer",
+                          display: "inline-block",
+                          fontSize: "0.55rem",
+                        }}
+                      >
+                        {supply.imageUrl ? "CHANGE IMG" : "ADD IMG"}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = (ev) =>
+                              setNewSupplies((prev) =>
+                                prev.map((s, i) =>
+                                  i === idx
+                                    ? {
+                                        ...s,
+                                        imageUrl: ev.target?.result as string,
+                                      }
+                                    : s,
+                                ),
+                              );
+                            reader.readAsDataURL(file);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    style={{
+                      ...btnSmall,
+                      background: "#001a0a",
+                      color: S.green,
+                      border: `1px solid ${S.green}44`,
+                    }}
+                    onClick={() =>
+                      setNewSupplies((prev) => [
+                        ...prev,
+                        {
+                          id: Date.now().toString(),
+                          name: "",
+                          imageUrl: undefined,
+                          currentStock: 0,
+                          neededPerPurchase: 1,
+                        },
+                      ])
+                    }
+                  >
+                    + ADD SUPPLY
+                  </button>
+                </div>
+                {facilityCategories.length > 0 && (
+                  <select
+                    value={selectedItemCategory}
+                    onChange={(e) => setSelectedItemCategory(e.target.value)}
+                    style={{ ...selectStyle, marginTop: "8px" }}
+                  >
+                    <option value="">NO CATEGORY</option>
+                    {facilityCategories.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <button
                   type="button"
                   style={{ ...btnPrimary, marginTop: "10px" }}
@@ -6115,6 +7154,15 @@ function SectorWorkspace({
   // Log edit state: maps log id -> edit draft body (undefined = not editing)
   const [editingLog, setEditingLog] = useState<Record<string, string>>({});
 
+  // Sector category state
+  const [sectorCategories, setSectorCategoriesState] = useState<string[]>([]);
+  const [selectedLogCategory, setSelectedLogCategory] = useState<string>("");
+  const [logCategoryFilter, setLogCategoryFilter] = useState<string>("ALL");
+  const [sectorLogSearch, setSectorLogSearch] = useState("");
+  const [adminFeedSearch, setAdminFeedSearch] = useState("");
+  const [newSectorCatName, setNewSectorCatName] = useState("");
+  const [sectorCatMgrOpen, setSectorCatMgrOpen] = useState(false);
+
   const refreshLogs = () => setLogs(getSectorLogs());
   const refreshPosts = () => setAdminPostsState(getAdminPosts());
 
@@ -6168,11 +7216,13 @@ function SectorWorkspace({
       level: logLevel,
       date,
       attachments: logAttachments.length > 0 ? logAttachments : undefined,
+      category: selectedLogCategory || undefined,
     });
     setSectorLogs(allLogs);
     setLogTitle("");
     setLogBody("");
     setLogAttachments([]);
+    setSelectedLogCategory("");
     setShowLogEmojiPicker(false);
     setShowLogGifPanel(false);
     refreshLogs();
@@ -6276,14 +7326,34 @@ function SectorWorkspace({
 
   const filteredLogs = logs
     .filter((l) => l.sector === activeSectorKey)
+    .filter(
+      (l) => logCategoryFilter === "ALL" || l.category === logCategoryFilter,
+    )
+    .filter(
+      (l) =>
+        !sectorLogSearch.trim() ||
+        l.body?.toLowerCase().includes(sectorLogSearch.toLowerCase()) ||
+        l.author?.toLowerCase().includes(sectorLogSearch.toLowerCase()) ||
+        l.title?.toLowerCase().includes(sectorLogSearch.toLowerCase()),
+    )
     .slice()
     .reverse();
 
   const filteredPosts = adminPosts.filter(
     (p) =>
       p.minLvl <= currentUser.lvl &&
-      (!p.sector || p.sector === activeSectorKey),
+      (!p.sector || p.sector === activeSectorKey) &&
+      (!adminFeedSearch.trim() ||
+        p.content?.toLowerCase().includes(adminFeedSearch.toLowerCase()) ||
+        p.author?.toLowerCase().includes(adminFeedSearch.toLowerCase())),
   );
+
+  // Load sector categories when activeSectorKey changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
+  useEffect(() => {
+    setSectorCategoriesState(getSectorCategories(activeSectorKey));
+    setLogCategoryFilter("ALL");
+  }, [activeSectorKey]);
 
   return (
     <div
@@ -6369,6 +7439,63 @@ function SectorWorkspace({
       >
         SECTOR LOGS
       </p>
+
+      {/* Category filter tabs for sector logs */}
+      {sectorCategories.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "4px",
+            marginBottom: "8px",
+          }}
+        >
+          {["ALL", ...sectorCategories].map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              onClick={() => setLogCategoryFilter(cat)}
+              style={{
+                background: logCategoryFilter === cat ? "#1a1500" : "#111",
+                border: `1px solid ${logCategoryFilter === cat ? S.gold : "#333"}`,
+                color: logCategoryFilter === cat ? S.gold : "#aaa",
+                borderRadius: "4px",
+                padding: "2px 10px",
+                fontSize: "0.6rem",
+                fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                fontWeight: 900,
+                cursor: "pointer",
+                letterSpacing: "1px",
+              }}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <input
+        type="text"
+        value={sectorLogSearch}
+        onChange={(e) => setSectorLogSearch(e.target.value)}
+        placeholder="SEARCH SECTOR LOGS..."
+        data-ocid="sector_logs.search_input"
+        style={{
+          width: "100%",
+          background: "#0a0a0a",
+          border: "1px solid #333",
+          color: "#e0e0e0",
+          padding: "6px 10px",
+          fontSize: "0.65rem",
+          fontFamily:
+            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+          fontWeight: 700,
+          letterSpacing: "1px",
+          marginBottom: "8px",
+          outline: "none",
+          boxSizing: "border-box",
+        }}
+      />
       <div
         className="xution-scroll"
         style={{
@@ -6904,6 +8031,155 @@ function SectorWorkspace({
               </option>
             ))}
           </select>
+          {/* L6: Sector Category Management */}
+          {currentUser.lvl === 6 && (
+            <div style={{ marginTop: "8px", marginBottom: "8px" }}>
+              <button
+                type="button"
+                onClick={() => setSectorCatMgrOpen((v) => !v)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: S.dim,
+                  cursor: "pointer",
+                  fontSize: "0.6rem",
+                  letterSpacing: "2px",
+                  padding: "0 0 4px 0",
+                  fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+                }}
+              >
+                {sectorCatMgrOpen ? "▲" : "▼"} LOG CATEGORIES [
+                {sectorCategories.length}]
+              </button>
+              {sectorCatMgrOpen && (
+                <div
+                  style={{
+                    background: "#0a0a0a",
+                    border: `1px solid ${S.brd}`,
+                    padding: "8px",
+                    marginBottom: "8px",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "4px",
+                      marginBottom: "8px",
+                    }}
+                  >
+                    {sectorCategories.length === 0 && (
+                      <span style={{ fontSize: "0.6rem", color: S.dim }}>
+                        NO CATEGORIES YET
+                      </span>
+                    )}
+                    {sectorCategories.map((cat) => (
+                      <span
+                        key={cat}
+                        style={{
+                          background: "#1a1a1a",
+                          border: "1px solid #333",
+                          borderRadius: "4px",
+                          padding: "2px 8px",
+                          fontSize: "0.7rem",
+                          color: "#aaa",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        {cat}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = sectorCategories.filter(
+                              (c) => c !== cat,
+                            );
+                            setSectorCategories(activeSectorKey, updated);
+                            setSectorCategoriesState(updated);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: S.red,
+                            cursor: "pointer",
+                            fontSize: "0.7rem",
+                            padding: "0",
+                            lineHeight: 1,
+                          }}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <input
+                      type="text"
+                      placeholder="NEW LOG CATEGORY..."
+                      value={newSectorCatName}
+                      onChange={(e) => setNewSectorCatName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && newSectorCatName.trim()) {
+                          const cat = newSectorCatName.trim().toUpperCase();
+                          if (!sectorCategories.includes(cat)) {
+                            const updated = [...sectorCategories, cat];
+                            setSectorCategories(activeSectorKey, updated);
+                            setSectorCategoriesState(updated);
+                          }
+                          setNewSectorCatName("");
+                        }
+                      }}
+                      style={{
+                        ...inputStyle,
+                        flex: 1,
+                        fontSize: "0.65rem",
+                        marginBottom: 0,
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cat = newSectorCatName.trim().toUpperCase();
+                        if (cat && !sectorCategories.includes(cat)) {
+                          const updated = [...sectorCategories, cat];
+                          setSectorCategories(activeSectorKey, updated);
+                          setSectorCategoriesState(updated);
+                        }
+                        setNewSectorCatName("");
+                      }}
+                      style={{
+                        ...btnSmall,
+                        background: "#1a1500",
+                        color: S.gold,
+                        border: `1px solid ${S.gold}44`,
+                        fontSize: "0.65rem",
+                      }}
+                    >
+                      ADD
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Category selector for log */}
+          {sectorCategories.length > 0 && (
+            <select
+              value={selectedLogCategory}
+              onChange={(e) => setSelectedLogCategory(e.target.value)}
+              style={{ ...selectStyle, marginBottom: "8px" }}
+            >
+              <option value="">NO CATEGORY</option>
+              {sectorCategories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+          )}
+
           <button
             type="button"
             data-ocid="log.submit_button"
@@ -7212,6 +8488,28 @@ function SectorWorkspace({
         <p style={{ color: S.dim, fontSize: "0.7rem", marginBottom: "10px" }}>
           ADMIN FEED
         </p>
+        <input
+          type="text"
+          value={adminFeedSearch}
+          onChange={(e) => setAdminFeedSearch(e.target.value)}
+          placeholder="SEARCH ADMIN FEED..."
+          data-ocid="admin_feed.search_input"
+          style={{
+            width: "100%",
+            background: "#0a0a0a",
+            border: "1px solid #333",
+            color: "#e0e0e0",
+            padding: "6px 10px",
+            fontSize: "0.65rem",
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+            fontWeight: 700,
+            letterSpacing: "1px",
+            marginBottom: "8px",
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
         {filteredPosts.length === 0 ? (
           <p style={{ opacity: 0.4, fontSize: "0.75rem" }}>
             No posts available for your level.
@@ -7609,8 +8907,81 @@ function AdminSettingsPanel({
   const [contactSaved, setContactSaved] = useState(false);
   const [qrOpenFor, setQrOpenFor] = useState<Set<string>>(new Set());
   const [sovereignSearch, setSovereignSearch] = useState("");
+  const [xutNumbers, setXutNumbers] = useState<Record<string, string>>(() =>
+    getXutNumbersMap(),
+  );
+  const [xutEdits, setXutEdits] = useState<Record<string, string>>({});
+  const [credExpanded, setCredExpanded] = useState<Set<string>>(new Set());
+  const [credEdits, setCredEdits] = useState<
+    Record<string, { username: string; question: string; answer: string }>
+  >({});
+  const [credStatus, setCredStatus] = useState<
+    Record<string, "success" | "error" | "">
+  >({});
 
-  const refresh = () => setDbState(getDB());
+  const refresh = () => {
+    setDbState(getDB());
+    setXutNumbers(getXutNumbersMap());
+  };
+
+  const handleSaveXut = (memberName: string) => {
+    const val = (xutEdits[memberName] ?? "").trim();
+    if (!val) return;
+    setXutNumberLocal(memberName, val);
+    setXutNumbers((prev) => ({ ...prev, [memberName]: val }));
+    setXutEdits((prev) => ({ ...prev, [memberName]: "" }));
+    actor?.setXutNumber(memberName, val).catch(() => {});
+  };
+
+  const handleSaveCredentials = async (memberName: string) => {
+    const edit = credEdits[memberName];
+    if (!edit) return;
+    const newName = edit.username.trim().toUpperCase();
+    const newQ = edit.question.trim();
+    const newA = edit.answer.trim().toLowerCase();
+    if (!newName || !newQ || !newA) return;
+
+    const d = getDB();
+    if (!d[memberName]) return;
+
+    try {
+      // Update question/answer in backend
+      await actor?.updateUserAnswer(memberName, newA).catch(() => {});
+
+      // If username changed, we rename the key and update backend level
+      if (newName !== memberName && !d[newName]) {
+        const record = { ...d[memberName], q: newQ, a: newA };
+        d[newName] = record;
+        delete d[memberName];
+        setDB(d);
+        // update backend: delete old, re-register new
+        await actor?.deleteUser(memberName).catch(() => {});
+        await actor?.registerUser(newName, newQ, newA).catch(() => {});
+        await actor
+          ?.updateUserLevel(newName, BigInt(record.lvl))
+          .catch(() => {});
+      } else {
+        d[memberName].q = newQ;
+        d[memberName].a = newA;
+        setDB(d);
+        await actor?.updateUserAnswer(memberName, newA).catch(() => {});
+      }
+
+      refresh();
+      setCredStatus((prev) => ({ ...prev, [memberName]: "success" }));
+      setCredExpanded((prev) => {
+        const s = new Set(prev);
+        s.delete(memberName);
+        return s;
+      });
+      setTimeout(
+        () => setCredStatus((prev) => ({ ...prev, [memberName]: "" })),
+        3000,
+      );
+    } catch {
+      setCredStatus((prev) => ({ ...prev, [memberName]: "error" }));
+    }
+  };
 
   // Escape key closes panel
   useEffect(() => {
@@ -7759,7 +9130,10 @@ function AdminSettingsPanel({
           <FundManagement onUpdate={onUpdate} currentUser={currentUser} />
 
           {/* ── Global Transaction Ledger ── */}
-          <GlobalTransactionHistory transactions={transactions} />
+          <GlobalTransactionHistory
+            transactions={transactions}
+            currentUser={currentUser}
+          />
 
           {/* ── Emergency Broadcast ── */}
           <div style={{ marginBottom: "30px" }}>
@@ -8079,6 +9453,64 @@ function AdminSettingsPanel({
                           )}
                         </div>
                       )}
+                      {/* XUT Number Management */}
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: "6px",
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: S.gold,
+                            fontSize: "0.6rem",
+                            letterSpacing: "1px",
+                            fontWeight: 900,
+                          }}
+                        >
+                          XUT:{" "}
+                          {xutNumbers[memberName] || (
+                            <span style={{ color: S.dim }}>UNASSIGNED</span>
+                          )}
+                        </span>
+                        <input
+                          type="text"
+                          placeholder="SET XUT #"
+                          value={xutEdits[memberName] ?? ""}
+                          onChange={(e) =>
+                            setXutEdits((prev) => ({
+                              ...prev,
+                              [memberName]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) =>
+                            e.key === "Enter" && handleSaveXut(memberName)
+                          }
+                          style={{
+                            ...inputStyle,
+                            margin: 0,
+                            width: "80px",
+                            padding: "4px 6px",
+                            fontSize: "0.6rem",
+                            height: "26px",
+                          }}
+                        />
+                        <button
+                          type="button"
+                          style={{
+                            ...btnSmall,
+                            background: "#1a1a00",
+                            color: S.gold,
+                            border: `1px solid ${S.gold}44`,
+                            padding: "4px 8px",
+                          }}
+                          onClick={() => handleSaveXut(memberName)}
+                        >
+                          SET
+                        </button>
+                      </div>
                       {/* QR Management — L6 only */}
                       <div>
                         <button
@@ -8200,6 +9632,199 @@ function AdminSettingsPanel({
                               </div>
                             );
                           })()}
+                      </div>
+
+                      {/* Edit Credentials (L6 only) */}
+                      <div>
+                        <button
+                          type="button"
+                          data-ocid="sovereign.credentials.toggle"
+                          onClick={() => {
+                            const s = new Set(credExpanded);
+                            if (s.has(memberName)) {
+                              s.delete(memberName);
+                            } else {
+                              s.add(memberName);
+                              setCredEdits((prev) => ({
+                                ...prev,
+                                [memberName]: {
+                                  username: memberName,
+                                  question: db[memberName]?.q ?? "",
+                                  answer: db[memberName]?.a ?? "",
+                                },
+                              }));
+                            }
+                            setCredExpanded(s);
+                          }}
+                          style={{
+                            ...btnSmall,
+                            background: credExpanded.has(memberName)
+                              ? "#1a001a"
+                              : "#111",
+                            color: credExpanded.has(memberName)
+                              ? "#cc88ff"
+                              : S.dim,
+                            border: `1px solid ${credExpanded.has(memberName) ? "#cc88ff44" : S.brd}`,
+                            fontSize: "0.6rem",
+                          }}
+                        >
+                          ✎ CREDENTIALS{" "}
+                          {credExpanded.has(memberName) ? "▾" : "▸"}
+                        </button>
+                        {credStatus[memberName] === "success" && (
+                          <span
+                            data-ocid="sovereign.credentials.success_state"
+                            style={{
+                              color: S.green,
+                              fontSize: "0.6rem",
+                              marginLeft: "8px",
+                              letterSpacing: "1px",
+                            }}
+                          >
+                            ✓ SAVED
+                          </span>
+                        )}
+                        {credStatus[memberName] === "error" && (
+                          <span
+                            data-ocid="sovereign.credentials.error_state"
+                            style={{
+                              color: S.red,
+                              fontSize: "0.6rem",
+                              marginLeft: "8px",
+                              letterSpacing: "1px",
+                            }}
+                          >
+                            ✗ ERROR
+                          </span>
+                        )}
+                        {credExpanded.has(memberName) &&
+                          credEdits[memberName] && (
+                            <div
+                              data-ocid="sovereign.credentials.panel"
+                              style={{
+                                background: "#0a000f",
+                                border: "1px solid #cc88ff33",
+                                padding: "10px",
+                                marginTop: "6px",
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: "6px",
+                              }}
+                            >
+                              <div>
+                                <div
+                                  style={{
+                                    fontSize: "0.55rem",
+                                    color: "#cc88ff",
+                                    letterSpacing: "1px",
+                                    marginBottom: "3px",
+                                  }}
+                                >
+                                  USERNAME
+                                </div>
+                                <input
+                                  type="text"
+                                  value={credEdits[memberName].username}
+                                  onChange={(e) =>
+                                    setCredEdits((prev) => ({
+                                      ...prev,
+                                      [memberName]: {
+                                        ...prev[memberName],
+                                        username: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  data-ocid="sovereign.credentials.input"
+                                  style={{
+                                    ...inputStyle,
+                                    margin: 0,
+                                    fontSize: "0.7rem",
+                                    borderColor: "#cc88ff44",
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <div
+                                  style={{
+                                    fontSize: "0.55rem",
+                                    color: "#cc88ff",
+                                    letterSpacing: "1px",
+                                    marginBottom: "3px",
+                                  }}
+                                >
+                                  SECRET QUESTION
+                                </div>
+                                <input
+                                  type="text"
+                                  value={credEdits[memberName].question}
+                                  onChange={(e) =>
+                                    setCredEdits((prev) => ({
+                                      ...prev,
+                                      [memberName]: {
+                                        ...prev[memberName],
+                                        question: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  data-ocid="sovereign.credentials.textarea"
+                                  style={{
+                                    ...inputStyle,
+                                    margin: 0,
+                                    fontSize: "0.7rem",
+                                    borderColor: "#cc88ff44",
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <div
+                                  style={{
+                                    fontSize: "0.55rem",
+                                    color: "#cc88ff",
+                                    letterSpacing: "1px",
+                                    marginBottom: "3px",
+                                  }}
+                                >
+                                  SECRET ANSWER
+                                </div>
+                                <input
+                                  type="text"
+                                  value={credEdits[memberName].answer}
+                                  onChange={(e) =>
+                                    setCredEdits((prev) => ({
+                                      ...prev,
+                                      [memberName]: {
+                                        ...prev[memberName],
+                                        answer: e.target.value,
+                                      },
+                                    }))
+                                  }
+                                  style={{
+                                    ...inputStyle,
+                                    margin: 0,
+                                    fontSize: "0.7rem",
+                                    borderColor: "#cc88ff44",
+                                  }}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                data-ocid="sovereign.credentials.save_button"
+                                onClick={() =>
+                                  handleSaveCredentials(memberName)
+                                }
+                                style={{
+                                  ...btnSmall,
+                                  background: "#1a001a",
+                                  color: "#cc88ff",
+                                  border: "1px solid #cc88ff66",
+                                  fontWeight: 900,
+                                  marginTop: "4px",
+                                }}
+                              >
+                                SAVE CREDENTIALS
+                              </button>
+                            </div>
+                          )}
                       </div>
                     </div>
                   );
@@ -10579,6 +12204,14 @@ export default function App() {
   const [contactLink, setContactLink] = useState<string>(getContactLink);
   const [allTransactions, setAllTransactions] =
     useState<TransactionEntry[]>(getTransactions);
+  // XUT numbers map (name -> xutNumber)
+  const [xutNumbers, setXutNumbers] = useState<Record<string, string>>(() =>
+    getXutNumbersMap(),
+  );
+  // Menu item extras map (itemId -> MenuItemExtras)
+  const [_menuItemExtrasMap, setMenuItemExtrasMap] = useState<
+    Record<string, MenuItemExtras>
+  >(() => getAllMenuItemExtrasMapLocal());
 
   // Actor for reconnect polling
   const { actor } = useActor();
@@ -10624,15 +12257,16 @@ export default function App() {
     return () => clearInterval(id);
   }, [actor]);
 
-  // Poll sector logs + admin posts + menu items from canister every 4s
+  // Poll sector logs + admin posts + menu items + extras from canister every 4s
   useEffect(() => {
     if (!actor) return;
     const id = setInterval(async () => {
       try {
-        const [allLogs, allPosts, allItems] = await Promise.all([
+        const [allLogs, allPosts, allItems, allExtras] = await Promise.all([
           actor.getAllSectorLogs(),
           actor.getAllAdminPosts(),
           actor.getAllMenuItems(),
+          actor.getAllMenuItemExtras(),
         ]);
         // Write to localStorage so components pick up fresh data
         const localLogs: SectorLog[] = allLogs.map((l) => ({
@@ -10667,6 +12301,22 @@ export default function App() {
         }));
         setMenuItems(localItems);
         setMenuSnapshot(localItems);
+        // Update menu item extras map
+        const extrasMap: Record<string, MenuItemExtras> = {};
+        const localExtrasStore: Record<string, string> = {};
+        for (const [id, json] of allExtras) {
+          try {
+            extrasMap[id] = JSON.parse(json);
+            localExtrasStore[id] = json;
+          } catch {
+            extrasMap[id] = {};
+          }
+        }
+        localStorage.setItem(
+          "x_menu_item_extras_v1",
+          JSON.stringify(localExtrasStore),
+        );
+        setMenuItemExtrasMap(extrasMap);
         setSyncTick((t) => t + 1);
       } catch {
         // fallback: use localStorage values already in state
@@ -10704,9 +12354,10 @@ export default function App() {
     if (!actor) return;
     const id = setInterval(async () => {
       try {
-        const [allUsers, allFunds] = await Promise.all([
+        const [allUsers, allFunds, allXuts] = await Promise.all([
           actor.getAllUsers(),
           actor.getAllMemberFunds(),
+          actor.getAllXutNumbers(),
         ]);
         // Update localStorage user db
         const db = getDB();
@@ -10722,6 +12373,13 @@ export default function App() {
         for (const [name, amount] of allFunds) {
           localStorage.setItem(`x_funds_${name}`, String(amount));
         }
+        // Update XUT numbers
+        const xutMap: Record<string, string> = {};
+        for (const [name, xut] of allXuts) {
+          xutMap[name] = xut;
+        }
+        localStorage.setItem("x_xut_numbers_v1", JSON.stringify(xutMap));
+        setXutNumbers(xutMap);
         setSyncTick((t) => t + 1);
       } catch {
         // ignore
@@ -10887,6 +12545,7 @@ export default function App() {
 
   const refreshActivities = useCallback(() => {
     setActivities(get24hActivities());
+    setAllTransactions(getTransactions());
   }, []);
 
   // Listen for activity events and forward to canister
@@ -11768,6 +13427,7 @@ export default function App() {
                 setActiveGroupId(null);
               }}
               lockdown={lockdown}
+              xutNumbers={xutNumbers}
             />
           </div>
         )}

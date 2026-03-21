@@ -1,32 +1,24 @@
 # XUTION Portal
 
 ## Current State
-
-- Transaction history exists for both personal (PersonalTransactionHistory) and global (GlobalTransactionHistory) views
-- Transactions are synced to canister on write, and loaded from canister on login, but NOT polled in real-time -- other devices only see new transactions after re-login
-- Member Directory is collapsible and scrollable but has no search/filter input
-- Sovereign Database (L6 admin panel) lists all members but has no search/filter input
-- Real-time canister polling exists for logs, posts, menu items, funds, lockdown -- but NOT transactions
+Sector logs and admin feed have scrollable panels but no search. Font is not monospace. Personal fund management add/remove transactions do not appear in transaction history or global ledger.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Search bar in Member Directory to filter members by name
-- Search bar in Sovereign Database to filter members by name
-- Real-time canister polling for transactions (every 5s) so all devices see new purchases/fund changes live
-- Transaction history display already shows `description` (purchase name), but ensure the poll loop writes to state so the UI updates cross-device
+- Search bar above sector logs (filters by content/author)
+- Search bar above admin feed (filters by content/author)
+- Fund add/remove actions logged as transactions in personal history and global ledger
 
 ### Modify
-- PersonalTransactionHistory: poll from canister state (via React state, not just localStorage) so purchases appear immediately cross-device
-- GlobalTransactionHistory: same -- read from canister-polled state
-- Main polling loop: add `getAllTransactions` polling every 5s, update local transaction state
+- Global font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace
+- addFunds/removeFunds create transaction entries visible in both personal history and global ledger
 
 ### Remove
-- Nothing removed
+- Nothing
 
 ## Implementation Plan
-
-1. Add `transactions` state at app level, populated from canister poll every 5s via `actor.getAllTransactions()`
-2. Pass transactions state down to PersonalTransactionHistory and GlobalTransactionHistory so they read live canister data
-3. Add `memberSearch` state to MemberDirectory component; render a search input when expanded; filter `memberNames` by search term
-4. Add `sovereignSearch` state to Sovereign Database section in admin panel; render a search input; filter `memberNames` by search term
+1. Update global CSS font-family to monospace stack
+2. Add sectorLogSearch and adminFeedSearch state; filter logs/posts by term
+3. Render search input above each scrollable section
+4. On add/remove funds, push transaction record (type ADD_FUNDS/REMOVE_FUNDS, amount, member, timestamp) to transactions array used by personal history and global ledger

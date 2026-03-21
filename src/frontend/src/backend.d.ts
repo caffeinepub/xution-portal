@@ -98,4 +98,16 @@ export interface backendInterface {
     updateUserLevel(name: string, newLevel: bigint): Promise<void>;
     updateUserAnswer(name: string, newAnswer: string): Promise<void>;
     userExists(name: string): Promise<boolean>;
+    // XUT Numbers
+    setXutNumber(name: string, xutNum: string): Promise<void>;
+    getXutNumber(name: string): Promise<string>;
+    getAllXutNumbers(): Promise<Array<[string, string]>>;
+    // Menu Item Extras
+    setMenuItemExtras(id: string, json: string): Promise<void>;
+    getMenuItemExtras(id: string): Promise<string>;
+    getAllMenuItemExtras(): Promise<Array<[string, string]>>;
+    // Member Extras
+    setMemberExtras(name: string, json: string): Promise<void>;
+    getMemberExtras(name: string): Promise<string>;
+    getAllMemberExtras(): Promise<Array<[string, string]>>;
 }

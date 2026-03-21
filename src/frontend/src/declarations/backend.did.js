@@ -245,6 +245,15 @@ export const idlFactory = ({ IDL }) => {
     'updateSectorLog' : IDL.Func([IDL.Text, IDL.Text], [], []),
     'updateUserLevel' : IDL.Func([IDL.Text, IDL.Nat], [], []),
     'userExists' : IDL.Func([IDL.Text], [IDL.Bool], ['query']),
+    'setXutNumber' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'getXutNumber' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'getAllXutNumbers' : IDL.Func([], [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Text))], ['query']),
+    'setMenuItemExtras' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'getMenuItemExtras' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'getAllMenuItemExtras' : IDL.Func([], [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Text))], ['query']),
+    'setMemberExtras' : IDL.Func([IDL.Text, IDL.Text], [], []),
+    'getMemberExtras' : IDL.Func([IDL.Text], [IDL.Text], ['query']),
+    'getAllMemberExtras' : IDL.Func([], [IDL.Vec(IDL.Tuple(IDL.Text, IDL.Text))], ['query']),
   });
 };
 

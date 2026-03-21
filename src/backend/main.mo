@@ -76,6 +76,15 @@ actor {
   let contents = Map.empty<Text, Text>();
   let activities = Map.empty<Text, ActivityEntry>();
 
+  // XUT numbers per member (name -> xutNumber string)
+  let xutNumbers = Map.empty<Text, Text>();
+
+  // Menu item extras: itemId -> JSON string {imageUrl, supplies: [{name,imageUrl,currentStock,neededPerPurchase}]}
+  let menuItemExtras = Map.empty<Text, Text>();
+
+  // Member extras: name -> JSON string {profilePhotoUrl, idCardImageUrl, ...}
+  let memberExtras = Map.empty<Text, Text>();
+
   var broadcast : Text = "";
   var lockdown = false;
   var officeLocations : Text = "";
@@ -165,34 +174,34 @@ actor {
       answer = normalizedAnswer;
       uid = nextId.toText();
     };
-
-    if (users.containsKey(newUser.name)) {
-      Runtime.trap("User name " # newUser.name # " is already taken, please use a different name!");
-    };
-
-    users.add(newUser.name, newUser);
     nextId += 1;
+    users.add(normalizedUser, newUser);
   };
 
-  public shared ({ caller }) func updateUserLevel(name : Text, newLevel : Nat) : async () {
-    if (newLevel < 1 or newLevel > 7) {
-      Runtime.trap("Invalid user level: can only be between 1 and 7.");
-    };
-
+  public shared ({ caller }) func setUserLevel(name : Text, level : Nat) : async () {
     switch (users.get(name)) {
-      case (null) { Runtime.trap("Could not update user level: user does not exist.") };
+      case (null) { Runtime.trap("Could not find user.") };
       case (?user) {
-        let updatedUser = { user with level = newLevel };
+        let updatedUser = { user with level };
         users.add(name, updatedUser);
       };
     };
   };
 
-  public shared ({ caller }) func updateUserAnswer(name : Text, newAnswer : Text) : async () {
+  public shared ({ caller }) func updateUserPassword(name : Text, newAnswer : Text) : async () {
     switch (users.get(name)) {
-      case (null) { Runtime.trap("Could not update answer: user does not exist.") };
+      case (null) { Runtime.trap("Could not find user.") };
       case (?user) {
-        let updatedUser = { user with answer = newAnswer };
+        let normalizedAnswer = Text.fromIter(
+          newAnswer.toIter().map(
+            func(c) {
+              if (c.isAlphabetic() and c >= 'A' and c <= 'Z') {
+                Char.fromNat32(c.toNat32() + 32);
+              } else { c };
+            }
+          )
+        );
+        let updatedUser = { user with answer = normalizedAnswer };
         users.add(name, updatedUser);
       };
     };
@@ -213,6 +222,38 @@ actor {
       case (null) { Runtime.trap("Could not delete user: user does not exist.") };
       case (?_) { users.remove(nameNormalized) };
     };
+  };
+
+  // XUT Number Methods
+  public query ({ caller }) func getXutNumber(name : Text) : async Text {
+    switch (xutNumbers.get(name)) {
+      case (null) { "" };
+      case (?xut) { xut };
+    };
+  };
+
+  public shared ({ caller }) func setXutNumber(name : Text, xutNum : Text) : async () {
+    xutNumbers.add(name, xutNum);
+  };
+
+  public query ({ caller }) func getAllXutNumbers() : async [(Text, Text)] {
+    xutNumbers.toArray();
+  };
+
+  // Member Extras (JSON blob per member: profilePhoto, idCard, etc.)
+  public query ({ caller }) func getMemberExtras(name : Text) : async Text {
+    switch (memberExtras.get(name)) {
+      case (null) { "{}" };
+      case (?json) { json };
+    };
+  };
+
+  public shared ({ caller }) func setMemberExtras(name : Text, json : Text) : async () {
+    memberExtras.add(name, json);
+  };
+
+  public query ({ caller }) func getAllMemberExtras() : async [(Text, Text)] {
+    memberExtras.toArray();
   };
 
   // Portal Methods
@@ -293,7 +334,7 @@ actor {
   public query ({ caller }) func getAdminPosts(sector : Text) : async [AdminPost] {
     adminPosts.values().toArray().filter(
       func(post) {
-        post.sector == sector;
+        post.sector == post.sector;
       }
     );
   };
@@ -365,10 +406,28 @@ actor {
       Runtime.trap("Menu item not found");
     };
     menuItems.remove(id);
+    menuItemExtras.remove(id);
   };
 
   public query ({ caller }) func getAllMenuItems() : async [MenuItem] {
     menuItems.values().toArray();
+  };
+
+  // Menu Item Extras (JSON blob per item: imageUrl, supplies array)
+  // supplies JSON format: [{name, imageUrl, currentStock, neededPerPurchase}]
+  public query ({ caller }) func getMenuItemExtras(id : Text) : async Text {
+    switch (menuItemExtras.get(id)) {
+      case (null) { "{}" };
+      case (?json) { json };
+    };
+  };
+
+  public shared ({ caller }) func setMenuItemExtras(id : Text, json : Text) : async () {
+    menuItemExtras.add(id, json);
+  };
+
+  public query ({ caller }) func getAllMenuItemExtras() : async [(Text, Text)] {
+    menuItemExtras.toArray();
   };
 
   // 4. Transactions

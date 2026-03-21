@@ -180,6 +180,16 @@ export interface backendInterface {
     updateUserLevel(name: string, newLevel: bigint): Promise<void>;
     updateUserAnswer(name: string, newAnswer: string): Promise<void>;
     userExists(name: string): Promise<boolean>;
+    setXutNumber(name: string, xutNum: string): Promise<void>;
+    getXutNumber(name: string): Promise<string>;
+    getAllXutNumbers(): Promise<Array<[string, string]>>;
+    setMenuItemExtras(id: string, json: string): Promise<void>;
+    getMenuItemExtras(id: string): Promise<string>;
+    getAllMenuItemExtras(): Promise<Array<[string, string]>>;
+    setMemberExtras(name: string, json: string): Promise<void>;
+    getMemberExtras(name: string): Promise<string>;
+    getAllMemberExtras(): Promise<Array<[string, string]>>;
+    _initializeAccessControlWithSecret(secret: string): Promise<void>;
 }
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
@@ -798,6 +808,36 @@ export class Backend implements backendInterface {
             const result = await this.actor.userExists(arg0);
             return result;
         }
+    }
+    async setXutNumber(name: string, xutNum: string): Promise<void> {
+        return (this.actor as any).setXutNumber(name, xutNum);
+    }
+    async getXutNumber(name: string): Promise<string> {
+        return (this.actor as any).getXutNumber(name);
+    }
+    async getAllXutNumbers(): Promise<Array<[string, string]>> {
+        return (this.actor as any).getAllXutNumbers();
+    }
+    async setMenuItemExtras(id: string, json: string): Promise<void> {
+        return (this.actor as any).setMenuItemExtras(id, json);
+    }
+    async getMenuItemExtras(id: string): Promise<string> {
+        return (this.actor as any).getMenuItemExtras(id);
+    }
+    async getAllMenuItemExtras(): Promise<Array<[string, string]>> {
+        return (this.actor as any).getAllMenuItemExtras();
+    }
+    async setMemberExtras(name: string, json: string): Promise<void> {
+        return (this.actor as any).setMemberExtras(name, json);
+    }
+    async getMemberExtras(name: string): Promise<string> {
+        return (this.actor as any).getMemberExtras(name);
+    }
+    async getAllMemberExtras(): Promise<Array<[string, string]>> {
+        return (this.actor as any).getAllMemberExtras();
+    }
+    async _initializeAccessControlWithSecret(secret: string): Promise<void> {
+        return (this.actor as any)._initializeAccessControlWithSecret(secret);
     }
 }
 export interface CreateActorOptions {
