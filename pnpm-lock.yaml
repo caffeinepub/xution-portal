@@ -644,6 +644,7 @@ packages:
 
   '@dfinity/auth-client@3.3.1':
     resolution: {integrity: sha512-Cxf8dlWzxG9mgRzEesuf4cRVCAMrIhlRKw54bc1CNceSobkhpo9Hbz4bSqD02zddKD+G69KAQR3z5r43wKi8CA==}
+    deprecated: This package has been deprecated. Its functionality is now part of `@icp-sdk/auth` (https://js.icp.build/auth), under the `client` submodule.
     peerDependencies:
       '@dfinity/agent': 3.3.1
       '@dfinity/identity': 3.3.1

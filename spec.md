@@ -1,30 +1,25 @@
 # XUTION Portal
 
 ## Current State
-Version 66. Fund management has add/remove by user with search. Personal and global transaction histories exist. Global ledger has a REVERSE button. Purchases log transactions. However:
-- The canister poll overwrites `allTransactions` state without preserving `reversed`/`reversedBy` flags from local storage, so reversed entries un-reverse themselves after 5 seconds.
-- Reversal entries (new transaction with `REVERSED:` description) are logged locally and to canister but the original entry's `reversed: true` flag is not persisted to the canister, so it's lost on other devices.
-- Personal transaction history has no search bar.
-- Fund management add/remove descriptions could more clearly attribute who made the change and to whom.
+App.tsx (~14,689 lines) has full DM system with private and group chats. GIFs are rendered using `<img>` with `crossOrigin="anonymous"` and `referrerPolicy="no-referrer"` which causes CORS failures that trigger a fallback `[View GIF]` link. Neither private DMs nor group DMs have video or voice calling.
 
 ## Requested Changes (Diff)
 
 ### Add
-- Search bar on personal transaction history
-- After reversal, immediately re-merge so `reversed` status persists in the UI without waiting for next poll
+- Video and voice call buttons in every DM chat header (both private DMPanel and GroupChatPanel)
+- A call overlay/modal that captures local camera/mic, shows local + placeholder remote video, and can be dismissed
+- Call state management: offer outgoing call, show incoming call notification to the recipient via backend polling
 
 ### Modify
-- Canister poll merge: preserve `reversed`/`reversedBy` from local storage when updating `allTransactions` state; also include local-only entries (e.g. very recent reversals) not yet on canister
-- Fund adjustment descriptions: show `ADD FUNDS TO [member] BY [admin]` and `REMOVE FUNDS FROM [member] BY [admin]` so global ledger shows who was affected
-- Global ledger: after REVERSE, immediately update the allTransactions state (via callback or local re-merge) so UI reflects it without waiting 5 seconds
-- Personal transaction history: filter shows entries for current user from merged canister+local, including fund adjustments made by L6
+- GIF `<img>` rendering in `renderAttachment` (both DMPanel ~line 3595 and GroupChatPanel ~line 11390): remove `crossOrigin="anonymous"` and `referrerPolicy="no-referrer"` attributes that trigger CORS preflight failures. For Tenor share page URLs (`tenor.com/view/...`), convert to embed URL or show as iframe. For all other direct URLs (ending in .gif/.webp/.mp4), just render as `<img>` without CORS attributes so the browser loads them normally.
+- Staging area GIF preview (the 32x32 thumbnail at ~line 3985) — same CORS attr fix.
 
 ### Remove
-- Nothing
+- Nothing removed
 
 ## Implementation Plan
-1. Add `search` state to `PersonalTransactionHistory`; render a search input that filters `txns` by `t.description`
-2. Fix canister poll merge in the 5-second useEffect: after mapping canister results, merge with local to preserve `reversed`/`reversedBy` flags and include local-only entries
-3. In `handleReverse` (GlobalTransactionHistory), after updating localStorage, force a state refresh so `allTransactions` immediately reflects the reversed status — add an `onReverse` callback prop
-4. Update `handleAdjust` description to `ADD FUNDS TO ${adjustMember} BY ${currentUser.name}` and `REMOVE FUNDS FROM ${adjustMember} BY ${currentUser.name}` for clearer global ledger attribution
-5. Ensure `handleSet` description similarly shows `FUND SET FOR ${name} BY ${currentUser.name}`
+1. In both `DMPanel.renderAttachment` and `GroupChatPanel.renderAttachment`: remove `crossOrigin` and `referrerPolicy` from GIF img tags. Add a helper that detects Tenor page URLs (`tenor.com/view/`) and converts them to `tenor.com/embed/ID` rendered in an `<iframe style="width:100%;height:180px;border:none">`, otherwise render as `<img>`. Keep the `onError` fallback link for anything that still fails.
+2. Fix the 32x32 staging thumbnail GIF img tags the same way.
+3. Add 📞 (voice) and 📹 (video) icon buttons to the DMPanel header and GroupChatPanel header.
+4. Create a `CallOverlay` component (or inline in App.tsx) that: requests getUserMedia (video+audio for video call, audio-only for voice), shows a local video element, displays "CALLING..." status, and has a hang-up button that stops tracks and closes overlay. Show an incoming call banner when another user is calling (poll backend or localStorage call state key every 3 seconds).
+5. Wire call state through localStorage (keyed by conversation id) for simple cross-tab signaling, since full WebRTC ICE signaling via backend is out of scope. This at least enables same-device demo and shows the correct UI.

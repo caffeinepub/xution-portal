@@ -1168,6 +1168,7 @@ function FundManagement({
   const [adjustSearch, setAdjustSearch] = useState("");
   const [adjustMember, setAdjustMember] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
   const filteredMembers = adjustSearch.trim()
     ? memberNames.filter((n) =>
         n.toLowerCase().includes(adjustSearch.toLowerCase()),
@@ -1190,10 +1191,11 @@ function FundManagement({
     );
     setFunds(adjustMember, next);
     const ts = new Date().toISOString();
+    const reasonSuffix = adjustReason.trim() ? `: ${adjustReason.trim()}` : "";
     const desc =
       dir === "add"
-        ? `ADD FUNDS TO ${adjustMember} BY ${currentUser.name}`
-        : `REMOVE FUNDS FROM ${adjustMember} BY ${currentUser.name}`;
+        ? `ADD FUNDS TO ${adjustMember} BY ${currentUser.name}${reasonSuffix}`
+        : `REMOVE FUNDS FROM ${adjustMember} BY ${currentUser.name}${reasonSuffix}`;
     addTransaction({
       member: adjustMember,
       prevAmount: prev,
@@ -1203,6 +1205,7 @@ function FundManagement({
       description: desc,
     });
     setAdjustAmount("");
+    setAdjustReason("");
     onUpdate();
     actor?.setMemberFunds(adjustMember, next).catch(() => {});
     actor
@@ -1314,39 +1317,106 @@ function FundManagement({
             >
               ADJUST FUNDS
             </div>
-            <input
-              type="text"
-              placeholder="SEARCH MEMBER..."
-              value={adjustSearch}
-              onChange={(e) => setAdjustSearch(e.target.value)}
-              data-ocid="fund.adjust.search_input"
-              style={{
-                ...inputStyle,
-                marginBottom: "6px",
-                fontSize: "0.7rem",
-                borderColor: `${S.red}66`,
-              }}
-            />
-            <select
-              value={adjustMember}
-              onChange={(e) => setAdjustMember(e.target.value)}
-              data-ocid="fund.adjust.select"
-              style={{
-                ...inputStyle,
-                marginBottom: "6px",
-                fontSize: "0.7rem",
-                background: "#111",
-                color: adjustMember ? S.white : S.dim,
-                cursor: "pointer",
-              }}
-            >
-              <option value="">-- SELECT MEMBER --</option>
-              {filteredMembers.map((n) => (
-                <option key={n} value={n}>
-                  {n} ({formatFunds(getFunds(n))})
-                </option>
-              ))}
-            </select>
+            <div style={{ position: "relative", marginBottom: "6px" }}>
+              <input
+                type="text"
+                placeholder="SEARCH MEMBER..."
+                value={adjustSearch}
+                onChange={(e) => {
+                  setAdjustSearch(e.target.value);
+                }}
+                data-ocid="fund.adjust.search_input"
+                style={{
+                  ...inputStyle,
+                  marginBottom: 0,
+                  fontSize: "0.7rem",
+                  borderColor: adjustMember ? `${S.green}88` : `${S.red}66`,
+                }}
+              />
+              {adjustSearch.trim() && filteredMembers.length > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    right: 0,
+                    background: "#0a0000",
+                    border: `1px solid ${S.red}66`,
+                    zIndex: 100,
+                    maxHeight: "150px",
+                    overflowY: "auto",
+                  }}
+                >
+                  {filteredMembers.map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => {
+                        setAdjustMember(n);
+                        setAdjustSearch(n);
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: "0.7rem",
+                        color: n === adjustMember ? S.gold : S.white,
+                        background:
+                          n === adjustMember ? "#1a0800" : "transparent",
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        letterSpacing: "1px",
+                        width: "100%",
+                        textAlign: "left",
+                        border: "none",
+                        borderBottom: `1px solid ${S.brd}`,
+                      }}
+                    >
+                      {n}{" "}
+                      <span style={{ color: S.dim, fontSize: "0.6rem" }}>
+                        ({formatFunds(getFunds(n))})
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            {adjustMember && (
+              <div
+                style={{
+                  padding: "5px 10px",
+                  background: "#0a1a0a",
+                  border: `1px solid ${S.green}44`,
+                  fontSize: "0.65rem",
+                  color: S.green,
+                  letterSpacing: "1px",
+                  marginBottom: "6px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <span>
+                  SELECTED: <strong>{adjustMember}</strong> —{" "}
+                  {formatFunds(getFunds(adjustMember))}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAdjustMember("");
+                    setAdjustSearch("");
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: S.red,
+                    cursor: "pointer",
+                    fontSize: "0.7rem",
+                    padding: "0 2px",
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             <div
               style={{
                 display: "flex",
@@ -1371,6 +1441,24 @@ function FundManagement({
                   fontSize: "0.7rem",
                   height: "32px",
                   padding: "6px 8px",
+                }}
+              />
+              <input
+                type="text"
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+                placeholder="REASON / NOTE (optional)"
+                style={{
+                  width: "100%",
+                  background: "#111",
+                  border: "1px solid #333",
+                  color: "#eee",
+                  padding: "6px 10px",
+                  fontSize: "0.6rem",
+                  letterSpacing: "2px",
+                  fontFamily: "inherit",
+                  marginTop: "6px",
+                  boxSizing: "border-box" as const,
                 }}
               />
               <button
@@ -2103,8 +2191,12 @@ function GlobalTransactionHistory({
     );
   })();
   const txns = ledgerSearch.trim()
-    ? allTxns.filter((t) =>
-        t.member.toLowerCase().includes(ledgerSearch.toLowerCase()),
+    ? allTxns.filter(
+        (t) =>
+          t.member.toLowerCase().includes(ledgerSearch.toLowerCase()) ||
+          (t.description || "")
+            .toLowerCase()
+            .includes(ledgerSearch.toLowerCase()),
       )
     : allTxns;
 
@@ -2910,6 +3002,40 @@ function AuthScreen({
               style={inputStyle}
               onKeyDown={(e) => e.key === "Enter" && runAuth()}
             />
+            <div
+              style={{
+                marginTop: "14px",
+                padding: "10px 12px",
+                background: "#1a0a00",
+                border: "1px solid #f0c04066",
+                fontSize: "0.6rem",
+                letterSpacing: "1px",
+                color: "#f0c040",
+                lineHeight: "1.6",
+              }}
+            >
+              <strong
+                style={{
+                  display: "block",
+                  marginBottom: "4px",
+                  letterSpacing: "2px",
+                }}
+              >
+                ⚠ NOTE: ONLY CLASS 6 CAN ADD/REMOVE ACCOUNTS.
+              </strong>
+              Please contact{" "}
+              <a
+                href="https://www.socialcreator.com/xution/?s=326221"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#f0c040", textDecoration: "underline" }}
+              >
+                https://www.socialcreator.com/xution/?s=326221
+              </a>
+              <br />
+              You will need: a profile pic, Name, security question and security
+              answer.
+            </div>
           </>
         )}
 
@@ -3194,7 +3320,6 @@ function DMPanel({
     getDMs(currentUser.name, target),
   );
   const [input, setInput] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingAttachments, setPendingAttachments] = useState<
     (DMAttachment & { _key: number })[]
@@ -3225,6 +3350,42 @@ function DMPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const callVideoRef = useRef<HTMLVideoElement>(null);
+  const [callState, setCallState] = useState<{
+    type: "video" | "voice";
+    stream: MediaStream | null;
+    error: string;
+  } | null>(null);
+
+  const startCall = async (type: "video" | "voice") => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(
+        type === "video"
+          ? { video: true, audio: true }
+          : { audio: true, video: false },
+      );
+      setCallState({ type, stream, error: "" });
+      setTimeout(() => {
+        if (callVideoRef.current && stream) {
+          callVideoRef.current.srcObject = stream;
+        }
+      }, 50);
+    } catch {
+      setCallState({
+        type,
+        stream: null,
+        error:
+          type === "video" ? "CAMERA/MIC ACCESS DENIED" : "MIC ACCESS DENIED",
+      });
+    }
+  };
+
+  const endCall = () => {
+    if (callState?.stream) {
+      for (const t of callState.stream.getTracks()) t.stop();
+    }
+    setCallState(null);
+  };
 
   // Poll target presence every 5 seconds
   useEffect(() => {
@@ -3458,17 +3619,65 @@ function DMPanel({
   };
 
   // Filter messages by search
-  const displayedMessages =
-    searchOpen && searchQuery.trim()
-      ? messages.filter(
-          (m) =>
-            m.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            m.from.toLowerCase().includes(searchQuery.toLowerCase()),
-        )
-      : messages;
+  const displayedMessages = searchQuery.trim()
+    ? messages.filter(
+        (m) =>
+          m.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.from.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : messages;
 
   const renderAttachment = (att: DMAttachment, key: string) => {
-    if (att.type === "image" || att.type === "gif") {
+    if (att.type === "gif") {
+      const src = att.url || att.dataUrl || "";
+      const tenorMatch = src.match(/tenor\.com\/view\/[^?#]+-(\d+)/);
+      if (tenorMatch) {
+        return (
+          <iframe
+            key={key}
+            src={`https://tenor.com/embed/${tenorMatch[1]}`}
+            style={{
+              width: "100%",
+              height: "180px",
+              border: "none",
+              display: "block",
+              marginTop: "4px",
+            }}
+            allowFullScreen
+            title="gif"
+          />
+        );
+      }
+      return (
+        <img
+          key={key}
+          src={src}
+          alt="gif"
+          style={{
+            maxWidth: "100%",
+            maxHeight: "180px",
+            objectFit: "contain",
+            display: "block",
+            marginTop: "4px",
+          }}
+          onError={(e) => {
+            const el = e.currentTarget;
+            const parent = el.parentElement;
+            if (parent && src) {
+              const link = document.createElement("a");
+              link.href = src;
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              link.textContent = "[View GIF]";
+              link.style.cssText =
+                "color:#f0c040;font-size:0.7rem;word-break:break-all;";
+              parent.replaceChild(link, el);
+            }
+          }}
+        />
+      );
+    }
+    if (att.type === "image") {
       const src = att.dataUrl || att.url || "";
       return (
         <img
@@ -3651,23 +3860,39 @@ function DMPanel({
             {targetOnline ? "● ONLINE" : "○ OFFLINE"}
           </span>
         </div>
-        {/* Search toggle */}
         <button
           type="button"
-          title="SEARCH MESSAGES"
-          onClick={() => {
-            setSearchOpen((o) => !o);
-            setSearchQuery("");
-          }}
+          title="VOICE CALL"
+          onClick={() => startCall("voice")}
           style={{
-            ...toolbarBtnStyle,
-            background: searchOpen ? "#1a1500" : "#111",
-            color: searchOpen ? S.gold : S.dim,
+            background: "transparent",
             border: "none",
-            marginRight: "2px",
+            cursor: "pointer",
+            padding: "2px 4px",
+            color: S.dim,
+            fontSize: "0.9rem",
+            lineHeight: 1,
+            flexShrink: 0,
           }}
         >
-          🔍
+          📞
+        </button>
+        <button
+          type="button"
+          title="VIDEO CALL"
+          onClick={() => startCall("video")}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: "2px 4px",
+            color: S.dim,
+            fontSize: "0.9rem",
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+        >
+          📹
         </button>
         <button
           type="button"
@@ -3705,31 +3930,119 @@ function DMPanel({
           [X]
         </button>
       </div>
-
-      {/* Search bar */}
-      {searchOpen && (
+      {/* Call overlay */}
+      {callState && (
         <div
           style={{
-            padding: "6px 10px",
-            borderBottom: `1px solid ${S.brd}`,
-            background: "#080808",
-            flexShrink: 0,
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.88)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
           }}
         >
-          <input
-            type="text"
-            placeholder="SEARCH MESSAGES..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+          <div
             style={{
-              ...inputStyle,
-              margin: 0,
-              fontSize: "0.7rem",
-              padding: "6px 8px",
+              background: "#0a0a0a",
+              border: `2px solid ${S.gold}`,
+              borderRadius: "8px",
+              padding: "24px",
+              minWidth: "280px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "12px",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
             }}
-          />
+          >
+            <div
+              style={{
+                color: S.gold,
+                fontSize: "0.75rem",
+                fontWeight: 900,
+                letterSpacing: "2px",
+              }}
+            >
+              {callState.type === "video" ? "📹" : "📞"} CALLING{" "}
+              {target.toUpperCase()}...
+            </div>
+            {callState.error ? (
+              <div
+                style={{
+                  color: "#f55",
+                  fontSize: "0.65rem",
+                  letterSpacing: "1px",
+                }}
+              >
+                {callState.error}
+              </div>
+            ) : callState.type === "video" && callState.stream ? (
+              <video
+                ref={callVideoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{
+                  width: "240px",
+                  height: "180px",
+                  background: "#111",
+                  borderRadius: "4px",
+                  border: `1px solid ${S.brd}`,
+                }}
+              />
+            ) : (
+              <div style={{ color: S.dim, fontSize: "0.65rem" }}>
+                🎙 VOICE CALL ACTIVE
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={endCall}
+              style={{
+                background: "#c00",
+                border: "none",
+                color: "#fff",
+                borderRadius: "50%",
+                width: "44px",
+                height: "44px",
+                fontSize: "1.2rem",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              🔴
+            </button>
+          </div>
         </div>
       )}
+
+      {/* Search bar */}
+      <div
+        style={{
+          padding: "6px 10px",
+          borderBottom: `1px solid ${S.brd}`,
+          background: "#080808",
+          flexShrink: 0,
+        }}
+      >
+        <input
+          type="text"
+          placeholder="SEARCH MESSAGES..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            ...inputStyle,
+            margin: 0,
+            fontSize: "0.7rem",
+            padding: "6px 8px",
+          }}
+        />
+      </div>
 
       {/* Message history */}
       <div
@@ -3756,7 +4069,7 @@ function DMPanel({
               textTransform: "uppercase",
             }}
           >
-            {searchOpen && searchQuery ? "NO RESULTS" : "NO MESSAGES YET"}
+            {searchQuery ? "NO RESULTS" : "NO MESSAGES YET"}
           </div>
         ) : (
           displayedMessages.map((msg, i) => {
@@ -7692,7 +8005,40 @@ function SectorWorkspace({
                     <p style={{ color: S.white, margin: 0 }}>{l.body}</p>
                     {l.attachments?.map((att, ai) => {
                       const akey = `log-att-${logId}-${ai}`;
-                      if (att.type === "image" || att.type === "gif") {
+                      if (att.type === "gif") {
+                        const gifSrc = att.url || att.dataUrl || "";
+                        return (
+                          <img
+                            key={akey}
+                            src={gifSrc}
+                            alt="gif"
+                            referrerPolicy="no-referrer"
+                            crossOrigin="anonymous"
+                            style={{
+                              maxWidth: "100%",
+                              maxHeight: "200px",
+                              objectFit: "contain",
+                              display: "block",
+                              marginTop: "6px",
+                            }}
+                            onError={(e) => {
+                              const el = e.currentTarget;
+                              const parent = el.parentElement;
+                              if (parent && gifSrc) {
+                                const link = document.createElement("a");
+                                link.href = gifSrc;
+                                link.target = "_blank";
+                                link.rel = "noopener noreferrer";
+                                link.textContent = "[View GIF]";
+                                link.style.cssText =
+                                  "color:#f0c040;font-size:0.7rem;word-break:break-all;";
+                                parent.replaceChild(link, el);
+                              }
+                            }}
+                          />
+                        );
+                      }
+                      if (att.type === "image") {
                         return (
                           <img
                             key={akey}
@@ -7998,7 +8344,20 @@ function SectorWorkspace({
                   }}
                 >
                   {att.type === "image" && <span>🖼️</span>}
-                  {att.type === "gif" && <span>GIF</span>}
+                  {att.type === "gif" &&
+                    (att.url ? (
+                      <img
+                        src={att.url}
+                        alt="gif"
+                        style={{
+                          width: "24px",
+                          height: "24px",
+                          objectFit: "cover",
+                        }}
+                      />
+                    ) : (
+                      <span>GIF</span>
+                    ))}
                   {att.type === "video" && <span>🎬</span>}
                   {att.type === "audio" && <span>🎵</span>}
                   {att.type === "file" && <span>📁</span>}
@@ -8439,7 +8798,20 @@ function SectorWorkspace({
                   }}
                 >
                   {att.type === "image" && <span>🖼️</span>}
-                  {att.type === "gif" && <span>GIF</span>}
+                  {att.type === "gif" &&
+                    (att.url ? (
+                      <img
+                        src={att.url}
+                        alt="gif"
+                        style={{
+                          width: "24px",
+                          height: "24px",
+                          objectFit: "cover",
+                        }}
+                      />
+                    ) : (
+                      <span>GIF</span>
+                    ))}
                   {att.type === "video" && <span>🎬</span>}
                   {att.type === "audio" && <span>🎵</span>}
                   {att.type === "file" && <span>📁</span>}
@@ -8703,7 +9075,40 @@ function SectorWorkspace({
                       <p style={{ color: S.white, margin: 0 }}>{p.content}</p>
                       {p.attachments?.map((att, ai) => {
                         const akey = `post-att-${postId}-${ai}`;
-                        if (att.type === "image" || att.type === "gif") {
+                        if (att.type === "gif") {
+                          const gifSrc2 = att.url || att.dataUrl || "";
+                          return (
+                            <img
+                              key={akey}
+                              src={gifSrc2}
+                              alt="gif"
+                              referrerPolicy="no-referrer"
+                              crossOrigin="anonymous"
+                              style={{
+                                maxWidth: "100%",
+                                maxHeight: "200px",
+                                objectFit: "contain",
+                                display: "block",
+                                marginTop: "6px",
+                              }}
+                              onError={(e) => {
+                                const el = e.currentTarget;
+                                const parent = el.parentElement;
+                                if (parent && gifSrc2) {
+                                  const link = document.createElement("a");
+                                  link.href = gifSrc2;
+                                  link.target = "_blank";
+                                  link.rel = "noopener noreferrer";
+                                  link.textContent = "[View GIF]";
+                                  link.style.cssText =
+                                    "color:#f0c040;font-size:0.7rem;word-break:break-all;";
+                                  parent.replaceChild(link, el);
+                                }
+                              }}
+                            />
+                          );
+                        }
+                        if (att.type === "image") {
                           return (
                             <img
                               key={akey}
@@ -8948,6 +9353,13 @@ function AdminSettingsPanel({
   const [contactSaved, setContactSaved] = useState(false);
   const [qrOpenFor, setQrOpenFor] = useState<Set<string>>(new Set());
   const [sovereignSearch, setSovereignSearch] = useState("");
+  const [addMemberName, setAddMemberName] = useState("");
+  const [addMemberLvl, setAddMemberLvl] = useState(1);
+  const [addMemberQ, setAddMemberQ] = useState("");
+  const [addMemberA, setAddMemberA] = useState("");
+  const [addMemberStatus, setAddMemberStatus] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
   const [xutNumbers, setXutNumbers] = useState<Record<string, string>>(() =>
     getXutNumbersMap(),
   );
@@ -8972,6 +9384,48 @@ function AdminSettingsPanel({
     setXutNumbers((prev) => ({ ...prev, [memberName]: val }));
     setXutEdits((prev) => ({ ...prev, [memberName]: "" }));
     actor?.setXutNumber(memberName, val).catch(() => {});
+  };
+
+  const handleAdminAddMember = async () => {
+    const n = addMemberName.trim().toUpperCase();
+    if (!n || !addMemberQ.trim() || !addMemberA.trim()) return;
+    setAddMemberStatus("loading");
+    try {
+      const db = getDB();
+      if (db[n]) {
+        setAddMemberStatus("error");
+        return;
+      }
+      if (actor) {
+        await actor.registerUser(
+          n,
+          addMemberQ.trim(),
+          addMemberA.trim().toLowerCase(),
+        );
+        if (addMemberLvl > 1)
+          await actor.updateUserLevel(n, BigInt(addMemberLvl));
+      }
+      const uid = `${Math.floor(10000 + Math.random() * 90000)}`;
+      const newRecord = {
+        name: n,
+        lvl: addMemberLvl,
+        uid,
+        photo: "",
+        q: addMemberQ.trim(),
+        a: addMemberA.trim().toLowerCase(),
+      };
+      setDB({ ...getDB(), [n]: newRecord });
+      setAddMemberName("");
+      setAddMemberLvl(1);
+      setAddMemberQ("");
+      setAddMemberA("");
+      setAddMemberStatus("success");
+      refresh();
+      setTimeout(() => setAddMemberStatus("idle"), 3000);
+    } catch {
+      setAddMemberStatus("error");
+      setTimeout(() => setAddMemberStatus("idle"), 3000);
+    }
   };
 
   const handleSaveCredentials = async (memberName: string) => {
@@ -9358,6 +9812,131 @@ function AdminSettingsPanel({
                   fontWeight: 900,
                 }}
               />
+            </div>
+            {/* ── Add Member Form ── */}
+            <div
+              style={{
+                background: "#0d0000",
+                border: "1px solid #ff000033",
+                padding: "12px",
+                marginTop: "10px",
+                marginBottom: "10px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "0.65rem",
+                  letterSpacing: "3px",
+                  color: "#ff4444",
+                  fontWeight: 900,
+                  marginBottom: "10px",
+                }}
+              >
+                + REGISTER NEW MEMBER
+              </div>
+              <input
+                type="text"
+                placeholder="IDENTITY NAME"
+                value={addMemberName}
+                onChange={(e) => setAddMemberName(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#111",
+                  border: "1px solid #333",
+                  color: "#eee",
+                  padding: "6px 10px",
+                  fontSize: "0.6rem",
+                  letterSpacing: "2px",
+                  fontFamily: "inherit",
+                  marginBottom: "6px",
+                  boxSizing: "border-box" as const,
+                }}
+              />
+              <select
+                value={addMemberLvl}
+                onChange={(e) =>
+                  setAddMemberLvl(Number.parseInt(e.target.value))
+                }
+                style={{
+                  width: "100%",
+                  background: "#111",
+                  border: "1px solid #333",
+                  color: "#eee",
+                  padding: "6px 10px",
+                  fontSize: "0.6rem",
+                  letterSpacing: "2px",
+                  fontFamily: "inherit",
+                  marginBottom: "6px",
+                  boxSizing: "border-box" as const,
+                }}
+              >
+                {Object.entries(LEVEL_NAMES).map(([val, label]) => (
+                  <option key={val} value={val}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="text"
+                placeholder="SECURITY QUESTION"
+                value={addMemberQ}
+                onChange={(e) => setAddMemberQ(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#111",
+                  border: "1px solid #333",
+                  color: "#eee",
+                  padding: "6px 10px",
+                  fontSize: "0.6rem",
+                  letterSpacing: "2px",
+                  fontFamily: "inherit",
+                  marginBottom: "6px",
+                  boxSizing: "border-box" as const,
+                }}
+              />
+              <input
+                type="password"
+                placeholder="SECRET ANSWER"
+                value={addMemberA}
+                onChange={(e) => setAddMemberA(e.target.value)}
+                style={{
+                  width: "100%",
+                  background: "#111",
+                  border: "1px solid #333",
+                  color: "#eee",
+                  padding: "6px 10px",
+                  fontSize: "0.6rem",
+                  letterSpacing: "2px",
+                  fontFamily: "inherit",
+                  marginBottom: "8px",
+                  boxSizing: "border-box" as const,
+                }}
+              />
+              <button
+                type="button"
+                onClick={handleAdminAddMember}
+                disabled={addMemberStatus === "loading"}
+                style={{
+                  background: "#3a0000",
+                  border: "1px solid #ff4444",
+                  color: "#ff4444",
+                  padding: "7px 14px",
+                  fontSize: "0.6rem",
+                  letterSpacing: "3px",
+                  fontFamily: "inherit",
+                  cursor: "pointer",
+                  fontWeight: 900,
+                  width: "100%",
+                }}
+              >
+                {addMemberStatus === "loading"
+                  ? "REGISTERING..."
+                  : addMemberStatus === "success"
+                    ? "✓ MEMBER ADDED"
+                    : addMemberStatus === "error"
+                      ? "✗ ERROR — NAME TAKEN?"
+                      : "REGISTER MEMBER"}
+              </button>
             </div>
             <div
               style={{
@@ -10752,6 +11331,42 @@ function GroupChatPanel({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
+  const callVideoRef = useRef<HTMLVideoElement>(null);
+  const [callState, setCallState] = useState<{
+    type: "video" | "voice";
+    stream: MediaStream | null;
+    error: string;
+  } | null>(null);
+
+  const startCall = async (type: "video" | "voice") => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(
+        type === "video"
+          ? { video: true, audio: true }
+          : { audio: true, video: false },
+      );
+      setCallState({ type, stream, error: "" });
+      setTimeout(() => {
+        if (callVideoRef.current && stream) {
+          callVideoRef.current.srcObject = stream;
+        }
+      }, 50);
+    } catch {
+      setCallState({
+        type,
+        stream: null,
+        error:
+          type === "video" ? "CAMERA/MIC ACCESS DENIED" : "MIC ACCESS DENIED",
+      });
+    }
+  };
+
+  const endCall = () => {
+    if (callState?.stream) {
+      for (const t of callState.stream.getTracks()) t.stop();
+    }
+    setCallState(null);
+  };
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll on message count
   useEffect(() => {
@@ -10985,7 +11600,56 @@ function GroupChatPanel({
       : group.messages;
 
   const renderAttachment = (att: DMAttachment, key: string) => {
-    if (att.type === "image" || att.type === "gif") {
+    if (att.type === "gif") {
+      const src = att.url || att.dataUrl || "";
+      const tenorMatch = src.match(/tenor\.com\/view\/[^?#]+-(\d+)/);
+      if (tenorMatch) {
+        return (
+          <iframe
+            key={key}
+            src={`https://tenor.com/embed/${tenorMatch[1]}`}
+            style={{
+              width: "100%",
+              height: "180px",
+              border: "none",
+              display: "block",
+              marginTop: "4px",
+            }}
+            allowFullScreen
+            title="gif"
+          />
+        );
+      }
+      return (
+        <img
+          key={key}
+          src={src}
+          alt="gif"
+          style={{
+            maxWidth: "100%",
+            maxHeight: "180px",
+            objectFit: "contain",
+            display: "block",
+            marginTop: "4px",
+          }}
+          onError={(e) => {
+            const el = e.currentTarget;
+            const parent = el.parentElement;
+            if (parent && src) {
+              const link = document.createElement("a");
+              link.href = src;
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              link.textContent = "[View GIF]";
+              link.style.cssText =
+                "color:#f0c040;font-size:0.7rem;word-break:break-all;";
+              parent.replaceChild(link, el);
+            }
+          }}
+        />
+      );
+    }
+    if (att.type === "image") {
       const src = att.dataUrl || att.url || "";
       return (
         <img
@@ -11222,6 +11886,41 @@ function GroupChatPanel({
             </>
           )}
         </div>
+        {/* Call buttons */}
+        <button
+          type="button"
+          title="VOICE CALL"
+          onClick={() => startCall("voice")}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: "2px 4px",
+            color: S.dim,
+            fontSize: "0.9rem",
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+        >
+          📞
+        </button>
+        <button
+          type="button"
+          title="VIDEO CALL"
+          onClick={() => startCall("video")}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: "2px 4px",
+            color: S.dim,
+            fontSize: "0.9rem",
+            lineHeight: 1,
+            flexShrink: 0,
+          }}
+        >
+          📹
+        </button>
         {/* Search toggle */}
         <button
           type="button"
@@ -11279,6 +11978,96 @@ function GroupChatPanel({
           [X]
         </button>
       </div>
+      {/* Call overlay */}
+      {callState && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.88)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <div
+            style={{
+              background: "#0a0a0a",
+              border: `2px solid ${S.gold}`,
+              borderRadius: "8px",
+              padding: "24px",
+              minWidth: "280px",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "12px",
+              fontFamily:
+                "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+            }}
+          >
+            <div
+              style={{
+                color: S.gold,
+                fontSize: "0.75rem",
+                fontWeight: 900,
+                letterSpacing: "2px",
+              }}
+            >
+              {callState.type === "video" ? "📹" : "📞"} CALLING{" "}
+              {group.name.toUpperCase()}...
+            </div>
+            {callState.error ? (
+              <div
+                style={{
+                  color: "#f55",
+                  fontSize: "0.65rem",
+                  letterSpacing: "1px",
+                }}
+              >
+                {callState.error}
+              </div>
+            ) : callState.type === "video" && callState.stream ? (
+              <video
+                ref={callVideoRef}
+                autoPlay
+                muted
+                playsInline
+                style={{
+                  width: "240px",
+                  height: "180px",
+                  background: "#111",
+                  borderRadius: "4px",
+                  border: `1px solid ${S.brd}`,
+                }}
+              />
+            ) : (
+              <div style={{ color: S.dim, fontSize: "0.65rem" }}>
+                🎙 VOICE CALL ACTIVE
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={endCall}
+              style={{
+                background: "#c00",
+                border: "none",
+                color: "#fff",
+                borderRadius: "50%",
+                width: "44px",
+                height: "44px",
+                fontSize: "1.2rem",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              🔴
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Search bar */}
       {searchOpen && (
