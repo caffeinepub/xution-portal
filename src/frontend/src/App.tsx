@@ -1,3 +1,4 @@
+import QRCode from "qrcode";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useActor } from "./hooks/useActor";
 import { useQRScanner } from "./qr-code/useQRScanner";
@@ -2660,6 +2661,7 @@ function AuthScreen({
   const [loading, setLoading] = useState(false);
   const [offlineMode, setOfflineMode] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
+  const [qrLoginLoading, setQrLoginLoading] = useState(false);
   // Actor for backend calls (anonymous actor — no II required for auth)
   const { actor, isFetching: actorFetching } = useActor();
 
@@ -3168,11 +3170,97 @@ function AuthScreen({
             </button>
             {showQrScanner && (
               <QRLoginScanner
-                onScan={(username) => {
-                  handleNameChange(username);
+                onScan={async (raw: string) => {
                   setShowQrScanner(false);
+                  let token: string | null = null;
+                  let embeddedName: string | null = null;
+                  try {
+                    const parsed = JSON.parse(raw);
+                    token = parsed.xution_qr_token || null;
+                    embeddedName = parsed.username || null;
+                  } catch {}
+                  if (!token) {
+                    handleNameChange(embeddedName || raw.trim().toUpperCase());
+                    return;
+                  }
+                  setQrLoginLoading(true);
+                  setErr("");
+                  try {
+                    if (actor) {
+                      const allExtras = await actor.getAllMemberExtras();
+                      const match = allExtras.find(([, extrasJson]) => {
+                        try {
+                          return JSON.parse(extrasJson).qrToken === token;
+                        } catch {
+                          return false;
+                        }
+                      });
+                      if (match) {
+                        const matchedName = match[0];
+                        const db = getDB();
+                        const localRecord = db[matchedName];
+                        if (localRecord) {
+                          addActivity(`QR LOGIN: ${matchedName}`);
+                          setQrLoginLoading(false);
+                          onLogin({ name: matchedName, ...localRecord }, true);
+                          return;
+                        }
+                        const allUsers = await actor.getAllUsers();
+                        const userEntry = allUsers.find(
+                          ([n]) => n === matchedName,
+                        );
+                        if (userEntry) {
+                          const userLvl = Number(userEntry[1]);
+                          const question =
+                            await actor.getSecurityQuestion(matchedName);
+                          const uid = `${Math.floor(10000 + Math.random() * 90000)}`;
+                          const newRecord = {
+                            lvl: userLvl,
+                            q: question,
+                            a: "",
+                            uid,
+                          };
+                          db[matchedName] = newRecord;
+                          setDB(db);
+                          addActivity(`QR LOGIN: ${matchedName}`);
+                          setQrLoginLoading(false);
+                          onLogin({ name: matchedName, ...newRecord }, true);
+                          return;
+                        }
+                      }
+                    }
+                    if (embeddedName) {
+                      const db = getDB();
+                      if (db[embeddedName]) {
+                        addActivity(`QR LOGIN: ${embeddedName} (OFFLINE)`);
+                        setQrLoginLoading(false);
+                        onLogin(
+                          { name: embeddedName, ...db[embeddedName] },
+                          false,
+                        );
+                        return;
+                      }
+                    }
+                    setErr("QR CODE NOT RECOGNIZED");
+                  } catch {
+                    setErr("QR LOGIN FAILED");
+                  }
+                  setQrLoginLoading(false);
                 }}
               />
+            )}
+            {qrLoginLoading && (
+              <div
+                style={{
+                  color: "#00ff41",
+                  fontSize: "0.7rem",
+                  letterSpacing: "2px",
+                  marginTop: "8px",
+                  textAlign: "center",
+                }}
+              >
+                AUTHENTICATING VIA QR...
+              </div>
             )}
           </>
         )}
@@ -3359,11 +3447,11 @@ function DMPanel({
 
   const startCall = async (type: "video" | "voice") => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(
+      const constraints =
         type === "video"
           ? { video: true, audio: true }
-          : { audio: true, video: false },
-      );
+          : { audio: true, video: false };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setCallState({ type, stream, error: "" });
       setTimeout(() => {
         if (callVideoRef.current && stream) {
@@ -3371,12 +3459,38 @@ function DMPanel({
         }
       }, 50);
     } catch {
-      setCallState({
-        type,
-        stream: null,
-        error:
-          type === "video" ? "CAMERA/MIC ACCESS DENIED" : "MIC ACCESS DENIED",
-      });
+      if (type === "video") {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
+          setCallState({
+            type: "voice",
+            stream,
+            error: "CAMERA UNAVAILABLE — AUDIO ONLY",
+          });
+          setTimeout(() => {
+            if (callVideoRef.current && stream) {
+              callVideoRef.current.srcObject = stream;
+            }
+          }, 50);
+        } catch {
+          setCallState({
+            type,
+            stream: null,
+            error:
+              "CAMERA/MIC ACCESS DENIED — allow permissions in browser settings and retry",
+          });
+        }
+      } else {
+        setCallState({
+          type,
+          stream: null,
+          error:
+            "MIC ACCESS DENIED — allow microphone in browser settings and retry",
+        });
+      }
     }
   };
 
@@ -3970,15 +4084,49 @@ function DMPanel({
               {target.toUpperCase()}...
             </div>
             {callState.error ? (
-              <div
-                style={{
-                  color: "#f55",
-                  fontSize: "0.65rem",
-                  letterSpacing: "1px",
-                }}
-              >
-                {callState.error}
-              </div>
+              <>
+                <div
+                  style={{
+                    color: "#f55",
+                    fontSize: "0.65rem",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  {callState.error}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = callState.type;
+                    setCallState(null);
+                    startCall(t);
+                  }}
+                  style={{
+                    marginTop: 8,
+                    background: "transparent",
+                    border: `1px solid ${S.gold}`,
+                    color: S.gold,
+                    padding: "4px 12px",
+                    cursor: "pointer",
+                    fontSize: "0.65rem",
+                    letterSpacing: "1px",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  RETRY
+                </button>
+                <div
+                  style={{
+                    color: "#888",
+                    fontSize: "0.6rem",
+                    textAlign: "center",
+                    maxWidth: 220,
+                  }}
+                >
+                  If denied, open your browser&#39;s address bar lock icon and
+                  allow Camera &amp; Microphone for this site.
+                </div>
+              </>
             ) : callState.type === "video" && callState.stream ? (
               <video
                 ref={callVideoRef}
@@ -9352,6 +9500,7 @@ function AdminSettingsPanel({
   const [editContactLink, setEditContactLink] = useState(contactLink);
   const [contactSaved, setContactSaved] = useState(false);
   const [qrOpenFor, setQrOpenFor] = useState<Set<string>>(new Set());
+  const [qrTokenUrls, setQrTokenUrls] = useState<Record<string, string>>({});
   const [sovereignSearch, setSovereignSearch] = useState("");
   const [addMemberName, setAddMemberName] = useState("");
   const [addMemberLvl, setAddMemberLvl] = useState(1);
@@ -10171,6 +10320,102 @@ function AdminSettingsPanel({
                                   alignItems: "flex-start",
                                 }}
                               >
+                                <div
+                                  style={{
+                                    borderBottom: `1px solid ${S.gold}22`,
+                                    paddingBottom: "8px",
+                                    width: "100%",
+                                    marginBottom: "8px",
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      color: "#00aaff",
+                                      fontSize: "0.6rem",
+                                      letterSpacing: "2px",
+                                      marginBottom: "6px",
+                                    }}
+                                  >
+                                    QR LOGIN TOKEN
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const token = crypto.randomUUID();
+                                      let existing: Record<string, unknown> =
+                                        {};
+                                      try {
+                                        const extrasJson =
+                                          await actor?.getMemberExtras(
+                                            memberName,
+                                          );
+                                        if (extrasJson)
+                                          existing = JSON.parse(extrasJson);
+                                      } catch {}
+                                      existing.qrToken = token;
+                                      await actor?.setMemberExtras(
+                                        memberName,
+                                        JSON.stringify(existing),
+                                      );
+                                      const qrData = JSON.stringify({
+                                        xution_qr_token: token,
+                                        username: memberName,
+                                      });
+                                      const dataUrl = await QRCode.toDataURL(
+                                        qrData,
+                                        { width: 200, margin: 2 },
+                                      );
+                                      setQrTokenUrls((prev) => ({
+                                        ...prev,
+                                        [memberName]: dataUrl,
+                                      }));
+                                    }}
+                                    style={{
+                                      ...btnSmall,
+                                      color: "#00aaff",
+                                      border: "1px solid #00aaff44",
+                                    }}
+                                  >
+                                    GENERATE QR TOKEN
+                                  </button>
+                                  {qrTokenUrls[memberName] && (
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        flexDirection: "column",
+                                        gap: "6px",
+                                        marginTop: "6px",
+                                        alignItems: "flex-start",
+                                      }}
+                                    >
+                                      <img
+                                        src={qrTokenUrls[memberName]}
+                                        alt="QR Token"
+                                        style={{
+                                          width: 120,
+                                          height: 120,
+                                          border: "1px solid #00aaff44",
+                                        }}
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const a = document.createElement("a");
+                                          a.href = qrTokenUrls[memberName];
+                                          a.download = `${memberName}_qr_token.png`;
+                                          a.click();
+                                        }}
+                                        style={{
+                                          ...btnSmall,
+                                          color: "#00ff41",
+                                          border: "1px solid #00ff4144",
+                                        }}
+                                      >
+                                        DOWNLOAD QR ↗
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
                                 {memberIdCard ? (
                                   <img
                                     src={memberIdCard}
@@ -11340,11 +11585,11 @@ function GroupChatPanel({
 
   const startCall = async (type: "video" | "voice") => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(
+      const constraints =
         type === "video"
           ? { video: true, audio: true }
-          : { audio: true, video: false },
-      );
+          : { audio: true, video: false };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       setCallState({ type, stream, error: "" });
       setTimeout(() => {
         if (callVideoRef.current && stream) {
@@ -11352,12 +11597,38 @@ function GroupChatPanel({
         }
       }, 50);
     } catch {
-      setCallState({
-        type,
-        stream: null,
-        error:
-          type === "video" ? "CAMERA/MIC ACCESS DENIED" : "MIC ACCESS DENIED",
-      });
+      if (type === "video") {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+            video: false,
+          });
+          setCallState({
+            type: "voice",
+            stream,
+            error: "CAMERA UNAVAILABLE — AUDIO ONLY",
+          });
+          setTimeout(() => {
+            if (callVideoRef.current && stream) {
+              callVideoRef.current.srcObject = stream;
+            }
+          }, 50);
+        } catch {
+          setCallState({
+            type,
+            stream: null,
+            error:
+              "CAMERA/MIC ACCESS DENIED — allow permissions in browser settings and retry",
+          });
+        }
+      } else {
+        setCallState({
+          type,
+          stream: null,
+          error:
+            "MIC ACCESS DENIED — allow microphone in browser settings and retry",
+        });
+      }
     }
   };
 
@@ -12018,15 +12289,49 @@ function GroupChatPanel({
               {group.name.toUpperCase()}...
             </div>
             {callState.error ? (
-              <div
-                style={{
-                  color: "#f55",
-                  fontSize: "0.65rem",
-                  letterSpacing: "1px",
-                }}
-              >
-                {callState.error}
-              </div>
+              <>
+                <div
+                  style={{
+                    color: "#f55",
+                    fontSize: "0.65rem",
+                    letterSpacing: "1px",
+                  }}
+                >
+                  {callState.error}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const t = callState.type;
+                    setCallState(null);
+                    startCall(t);
+                  }}
+                  style={{
+                    marginTop: 8,
+                    background: "transparent",
+                    border: `1px solid ${S.gold}`,
+                    color: S.gold,
+                    padding: "4px 12px",
+                    cursor: "pointer",
+                    fontSize: "0.65rem",
+                    letterSpacing: "1px",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  RETRY
+                </button>
+                <div
+                  style={{
+                    color: "#888",
+                    fontSize: "0.6rem",
+                    textAlign: "center",
+                    maxWidth: 220,
+                  }}
+                >
+                  If denied, open your browser&#39;s address bar lock icon and
+                  allow Camera &amp; Microphone for this site.
+                </div>
+              </>
             ) : callState.type === "video" && callState.stream ? (
               <video
                 ref={callVideoRef}
