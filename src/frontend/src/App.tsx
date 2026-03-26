@@ -1,8 +1,12 @@
 import QRCode from "qrcode";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { backendInterface } from "./backend";
 import { useActor } from "./hooks/useActor";
 import { useQRScanner } from "./qr-code/useQRScanner";
 // backend types are used via useActor() hook
+
+// ─── Module-level actor reference (set from App component) ──────────────────
+let actorRef: backendInterface | null = null;
 
 // ─── Canister type helpers ────────────────────────────────────────────────────
 // Map canister MenuItem stock (bigint: -1 = unlimited) ↔ frontend stock (undefined = unlimited)
@@ -306,7 +310,9 @@ function setFacilityCategories(facilityKey: string, cats: string[]) {
     const raw = localStorage.getItem(FACILITY_CATS_KEY);
     const map: Record<string, string[]> = raw ? JSON.parse(raw) : {};
     map[facilityKey] = cats;
-    localStorage.setItem(FACILITY_CATS_KEY, JSON.stringify(map));
+    const updated = JSON.stringify(map);
+    localStorage.setItem(FACILITY_CATS_KEY, updated);
+    actorRef?.setContent(FACILITY_CATS_KEY, updated).catch(() => {});
   } catch {}
 }
 
@@ -325,7 +331,9 @@ function setSectorCategories(sectorKey: string, cats: string[]) {
     const raw = localStorage.getItem(SECTOR_CATS_KEY);
     const map: Record<string, string[]> = raw ? JSON.parse(raw) : {};
     map[sectorKey] = cats;
-    localStorage.setItem(SECTOR_CATS_KEY, JSON.stringify(map));
+    const updated = JSON.stringify(map);
+    localStorage.setItem(SECTOR_CATS_KEY, updated);
+    actorRef?.setContent(SECTOR_CATS_KEY, updated).catch(() => {});
   } catch {}
 }
 
@@ -563,10 +571,10 @@ function saveOfficeFacilities(
   officeId: string,
   facilities: OfficeFacility[],
 ): void {
-  localStorage.setItem(
-    getOfficeFacilitiesKey(officeId),
-    JSON.stringify(facilities),
-  );
+  const key = getOfficeFacilitiesKey(officeId);
+  const json = JSON.stringify(facilities);
+  localStorage.setItem(key, json);
+  actorRef?.setContent(key, json).catch(() => {});
 }
 
 function getOfficeFavsKey(me: string): string {
@@ -654,9 +662,12 @@ function addDM(
   text: string,
   attachments?: DMAttachment[],
 ) {
+  const key = getDMKey(a, b);
   const msgs = getDMs(a, b);
   msgs.push({ from, text, ts: new Date().toISOString(), attachments });
-  localStorage.setItem(getDMKey(a, b), JSON.stringify(msgs));
+  const json = JSON.stringify(msgs);
+  localStorage.setItem(key, json);
+  actorRef?.setContent(key, json).catch(() => {});
 }
 
 // ─── DM unread helpers ────────────────────────────────────────────────────────
@@ -3180,7 +3191,51 @@ function AuthScreen({
                     embeddedName = parsed.username || null;
                   } catch {}
                   if (!token) {
-                    handleNameChange(embeddedName || raw.trim().toUpperCase());
+                    // Try to auto-login using the username from the uploaded ID card QR
+                    const scanName = (embeddedName || raw.trim()).toUpperCase();
+                    if (scanName) {
+                      setQrLoginLoading(true);
+                      setErr("");
+                      try {
+                        const db = getDB();
+                        if (db[scanName]) {
+                          addActivity(`ID CARD LOGIN: ${scanName}`);
+                          setQrLoginLoading(false);
+                          onLogin({ name: scanName, ...db[scanName] }, false);
+                          return;
+                        }
+                        if (actor) {
+                          const allUsers = await actor.getAllUsers();
+                          const userEntry = allUsers.find(
+                            ([uName]) => uName.toUpperCase() === scanName,
+                          );
+                          if (userEntry) {
+                            const matchedName = userEntry[0];
+                            const userLvl = Number(userEntry[1]);
+                            const question =
+                              await actor.getSecurityQuestion(matchedName);
+                            const uid = `${Math.floor(10000 + Math.random() * 90000)}`;
+                            const newRecord = {
+                              lvl: userLvl,
+                              q: question,
+                              a: "",
+                              uid,
+                            };
+                            const freshDb = getDB();
+                            freshDb[matchedName] = newRecord;
+                            setDB(freshDb);
+                            addActivity(`ID CARD LOGIN: ${matchedName}`);
+                            setQrLoginLoading(false);
+                            onLogin({ name: matchedName, ...newRecord }, true);
+                            return;
+                          }
+                        }
+                        setErr("ID CARD NOT RECOGNIZED");
+                      } catch {
+                        setErr("ID CARD LOGIN FAILED");
+                      }
+                      setQrLoginLoading(false);
+                    }
                     return;
                   }
                   setQrLoginLoading(true);
@@ -3320,14 +3375,18 @@ function getCustomEmojis(): CustomEmoji[] {
   return JSON.parse(localStorage.getItem("x_custom_emojis_v1") || "[]");
 }
 function saveCustomEmojis(list: CustomEmoji[]): void {
-  localStorage.setItem("x_custom_emojis_v1", JSON.stringify(list));
+  const json = JSON.stringify(list);
+  localStorage.setItem("x_custom_emojis_v1", json);
+  actorRef?.setContent("x_custom_emojis_v1", json).catch(() => {});
 }
 
 function getDMGroups(): DMGroup[] {
   return JSON.parse(localStorage.getItem("x_dm_groups_v1") || "[]");
 }
 function saveDMGroups(groups: DMGroup[]): void {
-  localStorage.setItem("x_dm_groups_v1", JSON.stringify(groups));
+  const json = JSON.stringify(groups);
+  localStorage.setItem("x_dm_groups_v1", json);
+  actorRef?.setContent("x_dm_groups_v1", json).catch(() => {});
 }
 
 // ─── DMPanel ──────────────────────────────────────────────────────────────────
@@ -13352,6 +13411,11 @@ export default function App() {
   // Actor for reconnect polling
   const { actor } = useActor();
 
+  // Keep module-level actorRef in sync for use in helper functions outside App
+  useEffect(() => {
+    actorRef = actor ?? null;
+  }, [actor]);
+
   // Presence interval ref — kept alive while user is logged in
   const presenceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
@@ -13597,6 +13661,89 @@ export default function App() {
     return () => clearInterval(id);
   }, [actor]);
 
+  // Poll facility categories, sector categories, DM groups, contact link, custom emojis every 6s
+  useEffect(() => {
+    if (!actor) return;
+    const id = setInterval(async () => {
+      try {
+        const [
+          facCats,
+          secCats,
+          dmGroupsJson,
+          contactLinkVal,
+          customEmojiJson,
+        ] = await Promise.all([
+          actor.getContent(FACILITY_CATS_KEY),
+          actor.getContent(SECTOR_CATS_KEY),
+          actor.getContent("x_dm_groups_v1"),
+          actor.getContent("x_contact_link"),
+          actor.getContent("x_custom_emojis_v1"),
+        ]);
+        let changed = false;
+        if (facCats && facCats !== localStorage.getItem(FACILITY_CATS_KEY)) {
+          localStorage.setItem(FACILITY_CATS_KEY, facCats);
+          changed = true;
+        }
+        if (secCats && secCats !== localStorage.getItem(SECTOR_CATS_KEY)) {
+          localStorage.setItem(SECTOR_CATS_KEY, secCats);
+          changed = true;
+        }
+        if (
+          dmGroupsJson &&
+          dmGroupsJson !== localStorage.getItem("x_dm_groups_v1")
+        ) {
+          localStorage.setItem("x_dm_groups_v1", dmGroupsJson);
+          try {
+            setDmGroups(JSON.parse(dmGroupsJson));
+          } catch {}
+          changed = true;
+        }
+        if (
+          contactLinkVal &&
+          contactLinkVal !== localStorage.getItem("x_contact_link")
+        ) {
+          localStorage.setItem("x_contact_link", contactLinkVal);
+          setContactLink(contactLinkVal);
+          changed = true;
+        }
+        if (
+          customEmojiJson &&
+          customEmojiJson !== localStorage.getItem("x_custom_emojis_v1")
+        ) {
+          localStorage.setItem("x_custom_emojis_v1", customEmojiJson);
+          changed = true;
+        }
+        if (changed) setSyncTick((t) => t + 1);
+      } catch {
+        // ignore
+      }
+    }, 6000);
+    return () => clearInterval(id);
+  }, [actor]);
+
+  // Poll active office's facility data from canister every 8s
+  useEffect(() => {
+    if (!actor || !activeOffice) return;
+    const officeId = activeOffice.id;
+    const key = getOfficeFacilitiesKey(officeId);
+    const fetchFacilities = async () => {
+      try {
+        const json = await actor.getContent(key);
+        if (json) {
+          const remote: OfficeFacility[] = JSON.parse(json);
+          localStorage.setItem(key, json);
+          setOfficeFacilitiesState(remote);
+          setSyncTick((t) => t + 1);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    fetchFacilities();
+    const id = setInterval(fetchFacilities, 8000);
+    return () => clearInterval(id);
+  }, [actor, activeOffice]);
+
   // Initial load from canister on actor available
   useEffect(() => {
     if (!actor) return;
@@ -13615,15 +13762,43 @@ export default function App() {
         if (offJson?.trim()) {
           localStorage.setItem("x_office_locations_v1", offJson);
         }
-        // Load about content
-        const [about, features, credits] = await Promise.all([
+        // Load about content + extra synced keys
+        const [
+          about,
+          features,
+          credits,
+          facCats,
+          secCats,
+          dmGroupsJson,
+          contactLinkVal,
+          customEmojiJson,
+        ] = await Promise.all([
           actor.getContent("x_about_content_v1"),
           actor.getContent("x_features_content_v1"),
           actor.getContent("x_credits_content_v1"),
+          actor.getContent(FACILITY_CATS_KEY),
+          actor.getContent(SECTOR_CATS_KEY),
+          actor.getContent("x_dm_groups_v1"),
+          actor.getContent("x_contact_link"),
+          actor.getContent("x_custom_emojis_v1"),
         ]);
         if (about) localStorage.setItem("x_about_content_v1", about);
         if (features) localStorage.setItem("x_features_content_v1", features);
         if (credits) localStorage.setItem("x_credits_content_v1", credits);
+        if (facCats) localStorage.setItem(FACILITY_CATS_KEY, facCats);
+        if (secCats) localStorage.setItem(SECTOR_CATS_KEY, secCats);
+        if (dmGroupsJson) {
+          localStorage.setItem("x_dm_groups_v1", dmGroupsJson);
+          try {
+            setDmGroups(JSON.parse(dmGroupsJson));
+          } catch {}
+        }
+        if (contactLinkVal) {
+          localStorage.setItem("x_contact_link", contactLinkVal);
+          setContactLink(contactLinkVal);
+        }
+        if (customEmojiJson)
+          localStorage.setItem("x_custom_emojis_v1", customEmojiJson);
         setSyncTick((t) => t + 1);
       } catch {
         // ignore
@@ -14073,6 +14248,7 @@ export default function App() {
           onContactLinkSave={(val: string) => {
             localStorage.setItem("x_contact_link", val);
             setContactLink(val);
+            actor?.setContent("x_contact_link", val).catch(() => {});
           }}
           transactions={allTransactions}
         />
