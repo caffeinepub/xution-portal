@@ -1,4 +1,3 @@
-import QRCode from "qrcode";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { backendInterface } from "./backend";
 import { useActor } from "./hooks/useActor";
@@ -164,6 +163,39 @@ const LEVEL_NAMES: Record<number, string> = {
 };
 
 // ─── localStorage helpers ─────────────────────────────────────────────────────
+// ─── QR extraction helper ─────────────────────────────────────────────────────
+
+async function extractQRFromImage(dataUrl: string): Promise<string | null> {
+  if (!(window as any).jsQR) {
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Failed to load jsQR"));
+      document.head.appendChild(script);
+    });
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(null);
+      ctx.drawImage(img, 0, 0);
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = (window as any).jsQR(
+        imageData.data,
+        imageData.width,
+        imageData.height,
+      );
+      resolve(code ? code.data : null);
+    };
+    img.onerror = () => resolve(null);
+    img.src = dataUrl;
+  });
+}
 
 function getDB(): UserDB {
   return JSON.parse(localStorage.getItem("x_db_v22") || "{}");
@@ -2473,46 +2505,123 @@ function GlobalTransactionHistory({
 // ─── QR Login Scanner ────────────────────────────────────────────────────────
 
 function QRLoginScanner({ onScan }: { onScan: (username: string) => void }) {
+  const [activeTab, setActiveTab] = React.useState<"camera" | "upload">(
+    "camera",
+  );
   const scanner = useQRScanner({ facingMode: "environment" });
   const [manualValue, setManualValue] = React.useState("");
   const [scanned, setScanned] = React.useState(false);
+  const [uploadError, setUploadError] = React.useState("");
+  const [uploadSuccess, setUploadSuccess] = React.useState("");
+  const [uploadProcessing, setUploadProcessing] = React.useState(false);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally run once on mount
+  // Camera tab: start/stop scanning based on active tab
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
   React.useEffect(() => {
-    scanner.startScanning();
+    if (activeTab === "camera") {
+      setScanned(false);
+      scanner.startScanning();
+    } else {
+      scanner.stopScanning();
+    }
     return () => {
       scanner.stopScanning();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   React.useEffect(() => {
-    if (scanner.qrResults.length > 0 && !scanned) {
+    if (scanner.qrResults.length > 0 && !scanned && activeTab === "camera") {
       const raw = scanner.qrResults[0].data;
       setScanned(true);
       scanner.stopScanning();
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed.username) {
-          onScan(parsed.username.toUpperCase());
-          return;
-        }
-      } catch {}
-      onScan(raw.trim().toUpperCase());
+      onScan(raw);
     }
-  }, [scanner.qrResults, scanner.stopScanning, scanned, onScan]);
+  }, [scanner.qrResults, scanner.stopScanning, scanned, onScan, activeTab]);
 
   const handleManual = () => {
     const u = manualValue.trim();
     if (!u) return;
-    try {
-      const parsed = JSON.parse(u);
-      if (parsed.username) {
-        onScan(parsed.username.toUpperCase());
+    onScan(u);
+  };
+
+  const loadJsQR = (): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if ((window as any).jsQR) {
+        resolve();
         return;
       }
-    } catch {}
-    onScan(u.toUpperCase());
+      const script = document.createElement("script");
+      script.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Failed to load jsQR"));
+      document.head.appendChild(script);
+    });
   };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadError("");
+    setUploadSuccess("");
+    setUploadProcessing(true);
+    try {
+      await loadJsQR();
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          setUploadError("CANVAS NOT SUPPORTED");
+          setUploadProcessing(false);
+          URL.revokeObjectURL(url);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const result = (window as any).jsQR(
+          imageData.data,
+          imageData.width,
+          imageData.height,
+        );
+        URL.revokeObjectURL(url);
+        setUploadProcessing(false);
+        if (result) {
+          setUploadSuccess("QR CODE DETECTED — LOGGING IN...");
+          onScan(result.data);
+        } else {
+          setUploadError("NO QR CODE FOUND IN IMAGE. TRY A CLEARER PHOTO.");
+        }
+      };
+      img.onerror = () => {
+        setUploadError("FAILED TO LOAD IMAGE");
+        setUploadProcessing(false);
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
+    } catch (_err) {
+      setUploadError("FAILED TO LOAD QR SCANNER LIBRARY");
+      setUploadProcessing(false);
+    }
+    // reset so same file can be re-selected
+    e.target.value = "";
+  };
+
+  const tabStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1,
+    background: active ? "#00cfff22" : "transparent",
+    border: `1px solid ${active ? "#00cfff" : "#00cfff44"}`,
+    color: active ? "#00cfff" : "#888",
+    padding: "6px 0",
+    fontSize: "0.65rem",
+    fontWeight: 900,
+    letterSpacing: "2px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    textTransform: "uppercase" as const,
+  });
 
   return (
     <div
@@ -2523,87 +2632,173 @@ function QRLoginScanner({ onScan }: { onScan: (username: string) => void }) {
         marginTop: "8px",
       }}
     >
-      {scanner.isSupported === false ? (
-        <p
-          style={{
-            color: "#ff4444",
-            fontSize: "0.65rem",
-            letterSpacing: "1px",
-            textAlign: "center",
-          }}
+      {/* Tab switcher */}
+      <div style={{ display: "flex", gap: "6px", marginBottom: "10px" }}>
+        <button
+          type="button"
+          style={tabStyle(activeTab === "camera")}
+          onClick={() => setActiveTab("camera")}
         >
-          ⚠ CAMERA NOT SUPPORTED ON THIS DEVICE
-        </p>
-      ) : scanner.error ? (
-        <p
-          style={{
-            color: "#ff4444",
-            fontSize: "0.65rem",
-            letterSpacing: "1px",
-            textAlign: "center",
-          }}
+          📷 CAMERA
+        </button>
+        <button
+          type="button"
+          style={tabStyle(activeTab === "upload")}
+          onClick={() => setActiveTab("upload")}
         >
-          ⚠ {String(scanner.error)}
-        </p>
-      ) : scanner.isLoading ? (
-        <p
-          style={{
-            color: "#888",
-            fontSize: "0.65rem",
-            letterSpacing: "2px",
-            textAlign: "center",
-            padding: "20px 0",
-          }}
-        >
-          INITIALIZING CAMERA...
-        </p>
-      ) : null}
-      {scanner.isSupported !== false && (
-        <div
-          style={{ position: "relative", width: "100%", marginBottom: "10px" }}
-        >
-          <video
-            ref={scanner.videoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{
-              width: "100%",
-              height: "220px",
-              objectFit: "cover",
-              display: "block",
-              background: "#111",
-            }}
-          />
-          <canvas ref={scanner.canvasRef} style={{ display: "none" }} />
-          {scanner.isScanning && (
-            <div
+          🖼 UPLOAD IMAGE
+        </button>
+      </div>
+
+      {/* Camera tab */}
+      {activeTab === "camera" && (
+        <>
+          {scanner.isSupported === false ? (
+            <p
               style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                border: "2px solid #00cfff44",
-                pointerEvents: "none",
+                color: "#ff4444",
+                fontSize: "0.65rem",
+                letterSpacing: "1px",
+                textAlign: "center",
               }}
             >
-              <div
+              ⚠ CAMERA NOT SUPPORTED ON THIS DEVICE
+            </p>
+          ) : scanner.error ? (
+            <p
+              style={{
+                color: "#ff4444",
+                fontSize: "0.65rem",
+                letterSpacing: "1px",
+                textAlign: "center",
+              }}
+            >
+              ⚠ {String(scanner.error)}
+            </p>
+          ) : scanner.isLoading ? (
+            <p
+              style={{
+                color: "#888",
+                fontSize: "0.65rem",
+                letterSpacing: "2px",
+                textAlign: "center",
+                padding: "20px 0",
+              }}
+            >
+              INITIALIZING CAMERA...
+            </p>
+          ) : null}
+          {scanner.isSupported !== false && (
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                marginBottom: "10px",
+              }}
+            >
+              <video
+                ref={scanner.videoRef}
+                autoPlay
+                playsInline
+                muted
                 style={{
-                  position: "absolute",
-                  top: "50%",
-                  left: "50%",
-                  transform: "translate(-50%,-50%)",
-                  width: "120px",
-                  height: "120px",
-                  border: "2px solid #00cfff",
-                  boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+                  width: "100%",
+                  height: "220px",
+                  objectFit: "cover",
+                  display: "block",
+                  background: "#111",
                 }}
               />
+              <canvas ref={scanner.canvasRef} style={{ display: "none" }} />
+              {scanner.isScanning && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    border: "2px solid #00cfff44",
+                    pointerEvents: "none",
+                    boxShadow: "0 0 0 9999px rgba(0,0,0,0.35)",
+                  }}
+                />
+              )}
             </div>
+          )}
+        </>
+      )}
+
+      {/* Upload Image tab */}
+      {activeTab === "upload" && (
+        <div style={{ marginBottom: "10px" }}>
+          <p
+            style={{
+              color: "#888",
+              fontSize: "0.6rem",
+              letterSpacing: "1px",
+              marginBottom: "8px",
+            }}
+          >
+            SELECT AN IMAGE OF YOUR ID/QR CARD:
+          </p>
+          <label
+            style={{
+              display: "block",
+              background: "#111",
+              border: "1px dashed #00cfff88",
+              color: "#00cfff",
+              padding: "20px",
+              textAlign: "center",
+              fontSize: "0.65rem",
+              letterSpacing: "2px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+            }}
+            data-ocid="auth.qr.dropzone"
+          >
+            {uploadProcessing ? "SCANNING IMAGE..." : "📁 CHOOSE IMAGE FILE"}
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleImageUpload}
+              disabled={uploadProcessing}
+              data-ocid="auth.qr.upload_button"
+            />
+          </label>
+          {uploadError && (
+            <p
+              style={{
+                color: "#ff4444",
+                fontSize: "0.6rem",
+                letterSpacing: "1px",
+                marginTop: "6px",
+                textAlign: "center",
+              }}
+              data-ocid="auth.qr.error_state"
+            >
+              ⚠ {uploadError}
+            </p>
+          )}
+          {uploadSuccess && (
+            <p
+              style={{
+                color: "#00ff88",
+                fontSize: "0.6rem",
+                letterSpacing: "1px",
+                marginTop: "6px",
+                textAlign: "center",
+              }}
+              data-ocid="auth.qr.success_state"
+            >
+              ✓ {uploadSuccess}
+            </p>
           )}
         </div>
       )}
+
+      {/* Manual entry — always visible */}
       <p
         style={{
           color: "#888",
@@ -3230,6 +3425,63 @@ function AuthScreen({
                             return;
                           }
                         }
+                        // Try matching against idCardQrData stored from uploaded card images
+                        if (actor) {
+                          try {
+                            const allExtras = await actor.getAllMemberExtras();
+                            const cardMatch = allExtras.find(
+                              ([, extrasJson]) => {
+                                try {
+                                  return (
+                                    JSON.parse(extrasJson).idCardQrData === raw
+                                  );
+                                } catch {
+                                  return false;
+                                }
+                              },
+                            );
+                            if (cardMatch) {
+                              const matchedName = cardMatch[0];
+                              const freshDb = getDB();
+                              const localRecord = freshDb[matchedName];
+                              if (localRecord) {
+                                addActivity(`ID CARD LOGIN: ${matchedName}`);
+                                setQrLoginLoading(false);
+                                onLogin(
+                                  { name: matchedName, ...localRecord },
+                                  true,
+                                );
+                                return;
+                              }
+                              const allUsers2 = await actor.getAllUsers();
+                              const userEntry2 = allUsers2.find(
+                                ([n]) => n === matchedName,
+                              );
+                              if (userEntry2) {
+                                const userLvl = Number(userEntry2[1]);
+                                const question =
+                                  await actor.getSecurityQuestion(matchedName);
+                                const uid = `${Math.floor(10000 + Math.random() * 90000)}`;
+                                const newRecord = {
+                                  lvl: userLvl,
+                                  q: question,
+                                  a: "",
+                                  uid,
+                                };
+                                const freshDb2 = getDB();
+                                freshDb2[matchedName] = newRecord;
+                                setDB(freshDb2);
+                                addActivity(`ID CARD LOGIN: ${matchedName}`);
+                                setQrLoginLoading(false);
+                                onLogin(
+                                  { name: matchedName, ...newRecord },
+                                  true,
+                                );
+                                return;
+                              }
+                            }
+                          } catch {}
+                        }
                         setErr("ID CARD NOT RECOGNIZED");
                       } catch {
                         setErr("ID CARD LOGIN FAILED");
@@ -3295,6 +3547,56 @@ function AuthScreen({
                         );
                         return;
                       }
+                    }
+                    // Try matching against idCardQrData stored from uploaded card images
+                    if (actor) {
+                      try {
+                        const allExtras2 = await actor.getAllMemberExtras();
+                        const cardMatch2 = allExtras2.find(([, extrasJson]) => {
+                          try {
+                            return JSON.parse(extrasJson).idCardQrData === raw;
+                          } catch {
+                            return false;
+                          }
+                        });
+                        if (cardMatch2) {
+                          const matchedName = cardMatch2[0];
+                          const freshDb = getDB();
+                          const localRecord = freshDb[matchedName];
+                          if (localRecord) {
+                            addActivity(`ID CARD LOGIN: ${matchedName}`);
+                            setQrLoginLoading(false);
+                            onLogin(
+                              { name: matchedName, ...localRecord },
+                              true,
+                            );
+                            return;
+                          }
+                          const allUsers3 = await actor.getAllUsers();
+                          const userEntry3 = allUsers3.find(
+                            ([n]) => n === matchedName,
+                          );
+                          if (userEntry3) {
+                            const userLvl = Number(userEntry3[1]);
+                            const question =
+                              await actor.getSecurityQuestion(matchedName);
+                            const uid = `${Math.floor(10000 + Math.random() * 90000)}`;
+                            const newRecord = {
+                              lvl: userLvl,
+                              q: question,
+                              a: "",
+                              uid,
+                            };
+                            const freshDb2 = getDB();
+                            freshDb2[matchedName] = newRecord;
+                            setDB(freshDb2);
+                            addActivity(`ID CARD LOGIN: ${matchedName}`);
+                            setQrLoginLoading(false);
+                            onLogin({ name: matchedName, ...newRecord }, true);
+                            return;
+                          }
+                        }
+                      } catch {}
                     }
                     setErr("QR CODE NOT RECOGNIZED");
                   } catch {
@@ -10420,10 +10722,31 @@ function AdminSettingsPanel({
                                         xution_qr_token: token,
                                         username: memberName,
                                       });
-                                      const dataUrl = await QRCode.toDataURL(
-                                        qrData,
-                                        { width: 200, margin: 2 },
-                                      );
+                                      // Load QRCode from CDN if not already loaded
+                                      if (!(window as any).QRCode) {
+                                        await new Promise<void>(
+                                          (resolve, reject) => {
+                                            const s =
+                                              document.createElement("script");
+                                            s.src =
+                                              "https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js";
+                                            s.onload = () => resolve();
+                                            s.onerror = () =>
+                                              reject(
+                                                new Error(
+                                                  "Failed to load QRCode",
+                                                ),
+                                              );
+                                            document.head.appendChild(s);
+                                          },
+                                        );
+                                      }
+                                      const dataUrl = await (
+                                        window as any
+                                      ).QRCode.toDataURL(qrData, {
+                                        width: 200,
+                                        margin: 2,
+                                      });
                                       setQrTokenUrls((prev) => ({
                                         ...prev,
                                         [memberName]: dataUrl,
@@ -10523,7 +10846,7 @@ function AdminSettingsPanel({
                                         const file = e.target.files?.[0];
                                         if (!file) return;
                                         const reader = new FileReader();
-                                        reader.onload = (ev) => {
+                                        reader.onload = async (ev) => {
                                           const dataUrl = ev.target
                                             ?.result as string;
                                           setIdCardImage(memberName, dataUrl);
@@ -10531,6 +10854,31 @@ function AdminSettingsPanel({
                                             (prev) => new Set([...prev]),
                                           );
                                           e.target.value = "";
+                                          // Extract QR from card and store in member extras
+                                          try {
+                                            const qrData =
+                                              await extractQRFromImage(dataUrl);
+                                            if (qrData && actor) {
+                                              let existing: Record<
+                                                string,
+                                                unknown
+                                              > = {};
+                                              try {
+                                                const extrasJson =
+                                                  await actor.getMemberExtras(
+                                                    memberName,
+                                                  );
+                                                if (extrasJson)
+                                                  existing =
+                                                    JSON.parse(extrasJson);
+                                              } catch {}
+                                              existing.idCardQrData = qrData;
+                                              await actor.setMemberExtras(
+                                                memberName,
+                                                JSON.stringify(existing),
+                                              );
+                                            }
+                                          } catch {}
                                         };
                                         reader.readAsDataURL(file);
                                       }}
