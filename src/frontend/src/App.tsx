@@ -9734,6 +9734,23 @@ function EditableSection({
     setEditing(false);
   };
 
+  // Poll backend every 6s for real-time updates to this section
+  useEffect(() => {
+    if (!actor) return;
+    const id = setInterval(async () => {
+      try {
+        const val = await actor.getContent(storageKey);
+        if (val && val !== localStorage.getItem(storageKey)) {
+          localStorage.setItem(storageKey, val);
+          setContent(val);
+        }
+      } catch {
+        // ignore
+      }
+    }, 6000);
+    return () => clearInterval(id);
+  }, [actor, storageKey]);
+
   return (
     <div style={{ marginTop: "30px" }}>
       <div
@@ -14020,12 +14037,18 @@ export default function App() {
           dmGroupsJson,
           contactLinkVal,
           customEmojiJson,
+          aboutVal,
+          featuresVal,
+          creditsVal,
         ] = await Promise.all([
           actor.getContent(FACILITY_CATS_KEY),
           actor.getContent(SECTOR_CATS_KEY),
           actor.getContent("x_dm_groups_v1"),
           actor.getContent("x_contact_link"),
           actor.getContent("x_custom_emojis_v1"),
+          actor.getContent("x_about_content_v1"),
+          actor.getContent("x_features_content_v1"),
+          actor.getContent("x_credits_content_v1"),
         ]);
         let changed = false;
         if (facCats && facCats !== localStorage.getItem(FACILITY_CATS_KEY)) {
@@ -14059,6 +14082,27 @@ export default function App() {
           customEmojiJson !== localStorage.getItem("x_custom_emojis_v1")
         ) {
           localStorage.setItem("x_custom_emojis_v1", customEmojiJson);
+          changed = true;
+        }
+        if (
+          aboutVal &&
+          aboutVal !== localStorage.getItem("x_about_content_v1")
+        ) {
+          localStorage.setItem("x_about_content_v1", aboutVal);
+          changed = true;
+        }
+        if (
+          featuresVal &&
+          featuresVal !== localStorage.getItem("x_features_content_v1")
+        ) {
+          localStorage.setItem("x_features_content_v1", featuresVal);
+          changed = true;
+        }
+        if (
+          creditsVal &&
+          creditsVal !== localStorage.getItem("x_credits_content_v1")
+        ) {
+          localStorage.setItem("x_credits_content_v1", creditsVal);
           changed = true;
         }
         if (changed) setSyncTick((t) => t + 1);
