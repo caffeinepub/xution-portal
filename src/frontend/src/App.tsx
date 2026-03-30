@@ -9970,7 +9970,7 @@ function AdminSettingsPanel({
       // Update question/answer in backend
       await actor?.updateUserAnswer(memberName, newA).catch(() => {});
 
-      // If username changed, we rename the key and update backend level
+      // If username changed, rename the key and migrate all backend data
       if (newName !== memberName && !d[newName]) {
         const record = { ...d[memberName], q: newQ, a: newA };
         d[newName] = record;
@@ -9982,14 +9982,42 @@ function AdminSettingsPanel({
         await actor
           ?.updateUserLevel(newName, BigInt(record.lvl))
           .catch(() => {});
+        // Migrate member extras (profile photo, card image, QR data) to new username
+        try {
+          const oldExtrasJson =
+            (await actor?.getMemberExtras(memberName)) ?? "{}";
+          const oldExtras = JSON.parse(oldExtrasJson || "{}");
+          const migratedExtras = { ...oldExtras, q: newQ };
+          await actor
+            ?.setMemberExtras(newName, JSON.stringify(migratedExtras))
+            .catch(() => {});
+          await actor?.setMemberExtras(memberName, "{}").catch(() => {});
+        } catch {
+          /* ignore */
+        }
       } else {
         d[memberName].q = newQ;
         d[memberName].a = newA;
         setDB(d);
         await actor?.updateUserAnswer(memberName, newA).catch(() => {});
+        // Persist updated question in extras so all devices pick it up on next poll
+        try {
+          const existingJson =
+            (await actor?.getMemberExtras(memberName)) ?? "{}";
+          const existing = JSON.parse(existingJson || "{}");
+          await actor
+            ?.setMemberExtras(
+              memberName,
+              JSON.stringify({ ...existing, q: newQ }),
+            )
+            .catch(() => {});
+        } catch {
+          /* ignore */
+        }
       }
 
       refresh();
+      onUpdate();
       setCredStatus((prev) => ({ ...prev, [memberName]: "success" }));
       setCredExpanded((prev) => {
         const s = new Set(prev);
@@ -13919,18 +13947,43 @@ export default function App() {
     if (!actor) return;
     const id = setInterval(async () => {
       try {
-        const [allUsers, allFunds, allXuts] = await Promise.all([
+        const [allUsers, allFunds, allXuts, allExtras] = await Promise.all([
           actor.getAllUsers(),
           actor.getAllMemberFunds(),
           actor.getAllXutNumbers(),
+          actor.getAllMemberExtras(),
         ]);
+        // Build extras map for question sync
+        const extrasMap: Record<string, Record<string, string>> = {};
+        for (const [eName, eJson] of allExtras) {
+          try {
+            extrasMap[eName] = JSON.parse(eJson || "{}");
+          } catch {
+            extrasMap[eName] = {};
+          }
+        }
         // Update localStorage user db
         const db = getDB();
+        const backendNames = new Set(
+          allUsers.map(([n]: [string, bigint]) => n),
+        );
+        // Remove stale entries (renamed/deleted members) except the current logged-in user
+        for (const key of Object.keys(db)) {
+          if (!backendNames.has(key) && key !== user?.name) {
+            delete db[key];
+          }
+        }
         for (const [name, level] of allUsers) {
           if (db[name]) {
             db[name].lvl = Number(level);
+            // Sync security question from extras if L6 updated it
+            if (extrasMap[name]?.q) db[name].q = extrasMap[name].q;
           } else {
-            db[name] = { lvl: Number(level), q: "", a: "" };
+            db[name] = {
+              lvl: Number(level),
+              q: extrasMap[name]?.q || "",
+              a: "",
+            };
           }
         }
         setDB(db);
@@ -13951,7 +14004,7 @@ export default function App() {
       }
     }, 5000);
     return () => clearInterval(id);
-  }, [actor]);
+  }, [actor, user?.name]);
 
   // Poll all transactions from canister every 5s — real-time purchase/fund updates across devices
   useEffect(() => {
