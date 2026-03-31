@@ -13960,6 +13960,7 @@ export default function App() {
   }, [actor]);
 
   // Poll member list + funds from canister every 5s
+  // biome-ignore lint/correctness/useExhaustiveDependencies: user.lvl intentionally not a dep to avoid re-creating interval
   useEffect(() => {
     if (!actor) return;
     const id = setInterval(async () => {
@@ -14015,6 +14016,18 @@ export default function App() {
         }
         localStorage.setItem("x_xut_numbers_v1", JSON.stringify(xutMap));
         setXutNumbers(xutMap);
+        // Sync current user's level from backend in real time
+        if (user?.name) {
+          const myEntry = allUsers.find(
+            ([n]: [string, bigint]) => n === user.name,
+          );
+          if (myEntry) {
+            const myNewLvl = Number(myEntry[1]);
+            if (myNewLvl !== user.lvl) {
+              setUser((prev) => (prev ? { ...prev, lvl: myNewLvl } : prev));
+            }
+          }
+        }
         setSyncTick((t) => t + 1);
       } catch {
         // ignore

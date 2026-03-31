@@ -188,6 +188,16 @@ actor {
     };
   };
 
+  public shared ({ caller }) func updateUserLevel(name : Text, newLevel : Nat) : async () {
+    switch (users.get(name)) {
+      case (null) { Runtime.trap("Could not find user.") };
+      case (?user) {
+        let updatedUser = { user with level = newLevel };
+        users.add(name, updatedUser);
+      };
+    };
+  };
+
   public shared ({ caller }) func updateUserPassword(name : Text, newAnswer : Text) : async () {
     switch (users.get(name)) {
       case (null) { Runtime.trap("Could not find user.") };
