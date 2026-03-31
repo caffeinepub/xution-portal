@@ -6127,12 +6127,14 @@ function MemberList({
   onDM,
   lockdown,
   xutNumbers,
+  syncTick,
 }: {
   currentUser: CurrentUser;
   onActivity: () => void;
   onDM: (name: string) => void;
   lockdown: boolean;
   xutNumbers?: Record<string, string>;
+  syncTick?: number;
 }) {
   const { actor } = useActor();
   const [db, setDbState] = useState<UserDB>(getDB);
@@ -6143,6 +6145,12 @@ function MemberList({
   const [totalUnread, setTotalUnread] = useState(() =>
     getTotalUnreadDMs(currentUser.name),
   );
+
+  // Re-read db from localStorage whenever the canister poll updates it
+  // biome-ignore lint/correctness/useExhaustiveDependencies: syncTick is intentional trigger
+  useEffect(() => {
+    setDbState(getDB());
+  }, [syncTick]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -9857,6 +9865,7 @@ function AdminSettingsPanel({
   contactLink,
   onContactLinkSave,
   transactions,
+  syncTick,
 }: {
   open: boolean;
   onClose: () => void;
@@ -9872,9 +9881,17 @@ function AdminSettingsPanel({
   contactLink: string;
   onContactLinkSave: (val: string) => void;
   transactions?: TransactionEntry[];
+  syncTick?: number;
 }) {
   const { actor } = useActor();
   const [db, setDbState] = useState<UserDB>(getDB);
+
+  // Re-read db from localStorage whenever the canister poll updates it
+  // biome-ignore lint/correctness/useExhaustiveDependencies: syncTick is intentional trigger
+  useEffect(() => {
+    setDbState(getDB());
+  }, [syncTick]);
+
   const [editContactLink, setEditContactLink] = useState(contactLink);
   const [contactSaved, setContactSaved] = useState(false);
   const [qrOpenFor, setQrOpenFor] = useState<Set<string>>(new Set());
@@ -13788,7 +13805,7 @@ export default function App() {
   // Snapshot of all menu items — polled so sold-out lists in tiles stay fresh
   const [menuSnapshot, setMenuSnapshot] = useState<MenuItem[]>(getMenuItems);
   // Canister sync counter — bump to force re-render of components reading localStorage
-  const [_syncTick, setSyncTick] = useState(0);
+  const [syncTick, setSyncTick] = useState(0);
   const [contactLink, setContactLink] = useState<string>(getContactLink);
   const [allTransactions, setAllTransactions] =
     useState<TransactionEntry[]>(getTransactions);
@@ -14696,6 +14713,7 @@ export default function App() {
             actor?.setContent("x_contact_link", val).catch(() => {});
           }}
           transactions={allTransactions}
+          syncTick={syncTick}
         />
       )}
 
@@ -15204,6 +15222,7 @@ export default function App() {
               }}
               lockdown={lockdown}
               xutNumbers={xutNumbers}
+              syncTick={syncTick}
             />
           </div>
         )}
