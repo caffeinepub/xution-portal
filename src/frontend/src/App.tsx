@@ -2856,7 +2856,7 @@ function AuthScreen({
 }: {
   onLogin: (user: CurrentUser, isOnline: boolean) => void;
 }) {
-  const [mode, setMode] = useState<"up" | "in">("up");
+  const [mode, setMode] = useState<"up" | "in">("in");
   const [name, setName] = useState("");
   const [lvl, setLvl] = useState(1);
   const [q, setQ] = useState("");
@@ -3152,17 +3152,22 @@ function AuthScreen({
             <button
               type="button"
               key={m}
-              onClick={() => switchMode(m)}
+              onClick={() => {
+                if (m !== "up") switchMode(m);
+              }}
               style={{
                 padding: "12px",
-                cursor: "pointer",
-                color: mode === m ? S.gold : S.dim,
+                cursor: m === "up" ? "not-allowed" : "pointer",
+                color: m === "up" ? S.dim : mode === m ? S.gold : S.dim,
+                opacity: m === "up" ? 0.35 : 1,
                 flex: 1,
                 fontSize: "0.8rem",
                 background: "transparent",
                 border: "none",
                 borderBottom:
-                  mode === m ? `3px solid ${S.gold}` : "3px solid transparent",
+                  mode === m && m !== "up"
+                    ? `3px solid ${S.gold}`
+                    : "3px solid transparent",
                 fontFamily: "'JetBrains Mono', 'Courier New', monospace",
                 fontWeight: 900,
                 textTransform: "uppercase",
