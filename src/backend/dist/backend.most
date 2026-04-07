@@ -1,0 +1,100 @@
+// Version: 1.0.0
+type ActivityEntry__481187024 = {msg : Text; ts : Text};
+type AdminPost__737042194 =
+  {
+    author : Text;
+    content : Text;
+    date : Text;
+    id : Text;
+    minLvl : Nat;
+    sector : Text
+  };
+type Data__791452850<K, V> =
+  {var count : Nat__490723111; kvs : [var ?(K, V)]};
+type Internal__8484328<K, V> =
+  {children : [var ?Node__46230540<K, V>]; data : Data__791452850<K, V>};
+type Leaf__809889148<K, V> = {data : Data__791452850<K, V>};
+type MenuItem__727296599 =
+  {
+    createdBy : Text;
+    description : Text;
+    facility : Text;
+    id : Text;
+    name : Text;
+    price : Float;
+    stock : Int
+  };
+type Nat__490723111 = Nat__920180692;
+type Nat__920180692 = Nat;
+type Node__46230540<K, V> =
+  {#internal : Internal__8484328<K, V>; #leaf : Leaf__809889148<K, V>};
+type SectorLog__860613354 =
+  {
+    author : Text;
+    body : Text;
+    date : Text;
+    id : Text;
+    level : Nat;
+    sector : Text;
+    title : Text
+  };
+type Transaction__865268250 =
+  {
+    changedBy : Text;
+    description : Text;
+    id : Text;
+    member : Text;
+    newAmount : Float;
+    prevAmount : Float;
+    ts : Text
+  };
+type User__831686142 =
+  {answer : Text; level : Nat; name : Text; question : Text; uid : Text};
+actor {
+  stable activities :
+    {
+      var root : Node__46230540<Text, ActivityEntry__481187024>;
+      var size : Nat__490723111
+    };
+  stable adminPosts :
+    {
+      var root : Node__46230540<Text, AdminPost__737042194>;
+      var size : Nat__490723111
+    };
+  stable var broadcast : Text;
+  stable cardNumbers :
+    {var root : Node__46230540<Text, Text>; var size : Nat__490723111};
+  stable contents :
+    {var root : Node__46230540<Text, Text>; var size : Nat__490723111};
+  stable var lockdown : Bool;
+  stable memberExtras :
+    {var root : Node__46230540<Text, Text>; var size : Nat__490723111};
+  stable memberFunds :
+    {var root : Node__46230540<Text, Float>; var size : Nat__490723111};
+  stable menuItemExtras :
+    {var root : Node__46230540<Text, Text>; var size : Nat__490723111};
+  stable menuItems :
+    {
+      var root : Node__46230540<Text, MenuItem__727296599>;
+      var size : Nat__490723111
+    };
+  stable var nextId : Nat;
+  stable var officeLocations : Text;
+  stable sectorLogs :
+    {
+      var root : Node__46230540<Text, SectorLog__860613354>;
+      var size : Nat__490723111
+    };
+  stable transactions :
+    {
+      var root : Node__46230540<Text, Transaction__865268250>;
+      var size : Nat__490723111
+    };
+  stable users :
+    {
+      var root : Node__46230540<Text, User__831686142>;
+      var size : Nat__490723111
+    };
+  stable xutNumbers :
+    {var root : Node__46230540<Text, Text>; var size : Nat__490723111}
+};

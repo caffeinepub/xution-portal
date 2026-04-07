@@ -1,6 +1,7 @@
+import { useActor } from "@caffeineai/core-infrastructure";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import type { backendInterface } from "./backend";
-import { useActor } from "./hooks/useActor";
+import { createActor } from "./backend";
 import { useQRScanner } from "./qr-code/useQRScanner";
 // backend types are used via useActor() hook
 
@@ -1203,7 +1204,7 @@ function FundManagement({
   onUpdate: () => void;
   currentUser: CurrentUser;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const [expanded, setExpanded] = useState(false);
   const [db] = useState<UserDB>(getDB);
   const [inputVals, setInputVals] = useState<Record<string, string>>({});
@@ -1874,7 +1875,7 @@ function PersonalFundManagement({
   currentUser: CurrentUser;
   onPurchase: () => void;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const [expanded, setExpanded] = useState(false);
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
@@ -2163,7 +2164,7 @@ function GlobalTransactionHistory({
   currentUser: CurrentUser;
   onReverse?: () => void;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const [expanded, setExpanded] = useState(false);
   const [localTxns, setLocalTxns] =
     useState<TransactionEntry[]>(getTransactions);
@@ -2869,7 +2870,7 @@ function AuthScreen({
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [qrLoginLoading, setQrLoginLoading] = useState(false);
   // Actor for backend calls (anonymous actor — no II required for auth)
-  const { actor, isFetching: actorFetching } = useActor();
+  const { actor, isFetching: actorFetching } = useActor(createActor);
 
   // Debounce ref for security question lookup
   const qLookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -5692,7 +5693,7 @@ function OfficeLocations({
   onSelect?: (office: OfficeLocation | null) => void;
   selectedId?: string | null;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const isSovereign = currentUser.lvl === 6;
   const [locations, setLocations] =
     useState<OfficeLocation[]>(getOfficeLocations);
@@ -6141,7 +6142,7 @@ function MemberList({
   xutNumbers?: Record<string, string>;
   syncTick?: number;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const [db, setDbState] = useState<UserDB>(getDB);
   const [expanded, setExpanded] = useState(false);
   const [favs, setFavs] = useState<string[]>(() =>
@@ -6704,7 +6705,7 @@ function FacilityMenu({
   facility: string;
   onActivity: () => void;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const isSovereign = currentUser.lvl === 6;
   const [items, setItemsState] = useState<MenuItem[]>(() =>
     getFacilityMenu(facility),
@@ -7991,7 +7992,7 @@ function SectorWorkspace({
   activeOffice: OfficeLocation | null;
   lockdown: boolean;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const [logs, setLogs] = useState<SectorLog[]>(getSectorLogs);
   const [adminPosts, setAdminPostsState] = useState<AdminPost[]>(getAdminPosts);
   // Selected office within the Offices sector (for browsing the list)
@@ -9723,7 +9724,7 @@ function EditableSection({
   currentUser: CurrentUser | null;
   renderContent: (text: string) => React.ReactNode;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const isSovereign = currentUser?.lvl === 6;
   const [content, setContent] = useState(() =>
     getAboutContent(storageKey, defaultContent),
@@ -9871,6 +9872,7 @@ function AdminSettingsPanel({
   onContactLinkSave,
   transactions,
   syncTick,
+  onSyncTick,
 }: {
   open: boolean;
   onClose: () => void;
@@ -9887,8 +9889,9 @@ function AdminSettingsPanel({
   onContactLinkSave: (val: string) => void;
   transactions?: TransactionEntry[];
   syncTick?: number;
+  onSyncTick?: () => void;
 }) {
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
   const [db, setDbState] = useState<UserDB>(getDB);
 
   // Re-read db from localStorage whenever the canister poll updates it
@@ -9970,6 +9973,7 @@ function AdminSettingsPanel({
       setAddMemberA("");
       setAddMemberStatus("success");
       refresh();
+      onSyncTick?.();
       setTimeout(() => setAddMemberStatus("idle"), 3000);
     } catch {
       setAddMemberStatus("error");
@@ -9989,27 +9993,25 @@ function AdminSettingsPanel({
     if (!d[memberName]) return;
 
     try {
-      // Update question/answer in backend
-      await actor?.updateUserAnswer(memberName, newA).catch(() => {});
-
-      // If username changed, rename the key and migrate all backend data
       if (newName !== memberName && !d[newName]) {
+        // ── Username changed: use atomic renameUser on backend ──────────────
         const record = { ...d[memberName], q: newQ, a: newA };
-        d[newName] = record;
-        delete d[memberName];
-        setDB(d);
-        // update backend: delete old, re-register new
-        await actor?.deleteUser(memberName).catch(() => {});
-        await actor?.registerUser(newName, newQ, newA).catch(() => {});
-        await actor
-          ?.updateUserLevel(newName, BigInt(record.lvl))
-          .catch(() => {});
-        // Migrate member extras (profile photo, card image, QR data) to new username
+        const lvl = record.lvl ?? 1;
+        const uid = Number(record.uid ?? "0") || 0;
+        await actor?.renameUser(
+          memberName,
+          newName,
+          newQ,
+          newA,
+          BigInt(lvl),
+          BigInt(uid),
+        );
+        // Migrate extras (photo, card, QR data, q, a) to new username in backend
         try {
           const oldExtrasJson =
             (await actor?.getMemberExtras(memberName)) ?? "{}";
           const oldExtras = JSON.parse(oldExtrasJson || "{}");
-          const migratedExtras = { ...oldExtras, q: newQ };
+          const migratedExtras = { ...oldExtras, q: newQ, a: newA };
           await actor
             ?.setMemberExtras(newName, JSON.stringify(migratedExtras))
             .catch(() => {});
@@ -10017,12 +10019,18 @@ function AdminSettingsPanel({
         } catch {
           /* ignore */
         }
+        // Update localStorage: copy record to new key, remove old key
+        d[newName] = record;
+        delete d[memberName];
+        setDB(d);
       } else {
+        // ── Same username: update question and/or answer ────────────────────
+        await actor?.updateUserPassword(memberName, newA).catch(() => {});
+        await actor?.updateUserQuestion(memberName, newQ).catch(() => {});
         d[memberName].q = newQ;
         d[memberName].a = newA;
         setDB(d);
-        await actor?.updateUserAnswer(memberName, newA).catch(() => {});
-        // Persist updated question in extras so all devices pick it up on next poll
+        // Persist updated question + answer in extras so all devices pick it up
         try {
           const existingJson =
             (await actor?.getMemberExtras(memberName)) ?? "{}";
@@ -10030,7 +10038,7 @@ function AdminSettingsPanel({
           await actor
             ?.setMemberExtras(
               memberName,
-              JSON.stringify({ ...existing, q: newQ }),
+              JSON.stringify({ ...existing, q: newQ, a: newA }),
             )
             .catch(() => {});
         } catch {
@@ -10040,6 +10048,7 @@ function AdminSettingsPanel({
 
       refresh();
       onUpdate();
+      onSyncTick?.();
       setCredStatus((prev) => ({ ...prev, [memberName]: "success" }));
       setCredExpanded((prev) => {
         const s = new Set(prev);
@@ -13824,7 +13833,7 @@ export default function App() {
   >(() => getAllMenuItemExtrasMapLocal());
 
   // Actor for reconnect polling
-  const { actor } = useActor();
+  const { actor } = useActor(createActor);
 
   // Keep module-level actorRef in sync for use in helper functions outside App
   useEffect(() => {
@@ -14001,11 +14010,13 @@ export default function App() {
             db[name].lvl = Number(level);
             // Sync security question from extras if L6 updated it
             if (extrasMap[name]?.q) db[name].q = extrasMap[name].q;
+            // Sync security answer from extras if L6 updated it
+            if (extrasMap[name]?.a) db[name].a = extrasMap[name].a;
           } else {
             db[name] = {
               lvl: Number(level),
               q: extrasMap[name]?.q || "",
-              a: "",
+              a: extrasMap[name]?.a || "",
             };
           }
         }
@@ -14732,6 +14743,7 @@ export default function App() {
           }}
           transactions={allTransactions}
           syncTick={syncTick}
+          onSyncTick={() => setSyncTick((t) => t + 1)}
         />
       )}
 

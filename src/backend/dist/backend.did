@@ -1,0 +1,130 @@
+type User = 
+ record {
+   answer: text;
+   level: nat;
+   name: text;
+   question: text;
+   uid: text;
+ };
+type Transaction = 
+ record {
+   changedBy: text;
+   description: text;
+   id: text;
+   member: text;
+   newAmount: float64;
+   prevAmount: float64;
+   ts: text;
+ };
+type SectorLog = 
+ record {
+   author: text;
+   body: text;
+   date: text;
+   id: text;
+   level: nat;
+   sector: text;
+   title: text;
+ };
+type MenuItem = 
+ record {
+   createdBy: text;
+   description: text;
+   facility: text;
+   id: text;
+   name: text;
+   price: float64;
+   stock: int;
+ };
+type AdminPost = 
+ record {
+   author: text;
+   content: text;
+   date: text;
+   id: text;
+   minLvl: nat;
+   sector: text;
+ };
+type ActivityEntry = 
+ record {
+   msg: text;
+   ts: text;
+ };
+service : {
+  addActivity: (msg: text, ts: text) -> ();
+  addAdminPost: (author: text, content: text, minLvl: nat, date: text,
+   sector: text) -> (text);
+  addMenuItem: (facility: text, name: text, price: float64, description:
+   text, createdBy: text, stock: int) -> (text);
+  addSectorLog: (sector: text, title: text, body: text, author: text, level:
+   nat, date: text) -> (text);
+  addTransaction: (member: text, prevAmount: float64, newAmount: float64,
+   changedBy: text, ts: text, description: text) -> (text);
+  clearBroadcast: () -> ();
+  clearOldActivities: () -> ();
+  deleteAdminPost: (id: text) -> ();
+  deleteMenuItem: (id: text) -> ();
+  deleteSectorLog: (id: text) -> ();
+  deleteUser: (name: text) -> ();
+  getActivities: () -> (vec ActivityEntry) query;
+  getAdminPosts: (sector: text) -> (vec AdminPost) query;
+  getAllAdminPosts: () -> (vec AdminPost) query;
+  getAllMemberExtras: () -> (vec record {
+                                   text;
+                                   text;
+                                 }) query;
+  getAllMemberFunds: () -> (vec record {
+                                  text;
+                                  float64;
+                                }) query;
+  getAllMenuItemExtras: () -> (vec record {
+                                     text;
+                                     text;
+                                   }) query;
+  getAllMenuItems: () -> (vec MenuItem) query;
+  getAllSectorLogs: () -> (vec SectorLog) query;
+  getAllTransactions: () -> (vec Transaction) query;
+  getAllUsers: () -> (vec record {
+                            text;
+                            nat;
+                          }) query;
+  getAllXutNumbers: () -> (vec record {
+                                 text;
+                                 text;
+                               }) query;
+  getBroadcast: () -> (text) query;
+  getCardNumber: (name: text) -> (text) query;
+  getContent: (key: text) -> (text) query;
+  getLockdown: () -> (bool) query;
+  getMemberExtras: (name: text) -> (text) query;
+  getMemberFunds: (name: text) -> (float64) query;
+  getMemberTransactions: (member: text) -> (vec Transaction) query;
+  getMenuItemExtras: (id: text) -> (text) query;
+  getMenuItems: (facility: text) -> (vec MenuItem) query;
+  getOfficeLocations: () -> (text) query;
+  getSectorLogs: (sector: text) -> (vec SectorLog) query;
+  getSecurityQuestion: (name: text) -> (text) query;
+  getUserCount: () -> (nat) query;
+  getXutNumber: (name: text) -> (text) query;
+  loginUser: (name: text, answer: text) -> (User) query;
+  registerUser: (name: text, question: text, answer: text) -> ();
+  renameUser: (oldName: text, newName: text, question: text, answer: 
+   text, level: nat, uid: nat) -> ();
+  setBroadcast: (msg: text) -> ();
+  setCardNumber: (name: text, cardNum: text) -> ();
+  setContent: (key: text, value: text) -> ();
+  setLockdown: (active: bool) -> ();
+  setMemberExtras: (name: text, json: text) -> ();
+  setMemberFunds: (name: text, amount: float64) -> ();
+  setMenuItemExtras: (id: text, json: text) -> ();
+  setOfficeLocations: (json: text) -> ();
+  setUserLevel: (name: text, level: nat) -> ();
+  setXutNumber: (name: text, xutNum: text) -> ();
+  updateAdminPost: (id: text, newContent: text) -> ();
+  updateMenuItemStock: (id: text, newStock: int) -> ();
+  updateSectorLog: (id: text, newBody: text) -> ();
+  updateUserLevel: (name: text, newLevel: nat) -> ();
+  updateUserPassword: (name: text, newAnswer: text) -> ();
+  updateUserQuestion: (name: text, newQuestion: text) -> ();
+  userExists: (name: text) -> (bool) query;
+}

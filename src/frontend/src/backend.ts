@@ -150,46 +150,48 @@ export interface backendInterface {
     getActivities(): Promise<Array<ActivityEntry>>;
     getAdminPosts(sector: string): Promise<Array<AdminPost>>;
     getAllAdminPosts(): Promise<Array<AdminPost>>;
+    getAllMemberExtras(): Promise<Array<[string, string]>>;
     getAllMemberFunds(): Promise<Array<[string, number]>>;
+    getAllMenuItemExtras(): Promise<Array<[string, string]>>;
     getAllMenuItems(): Promise<Array<MenuItem>>;
     getAllSectorLogs(): Promise<Array<SectorLog>>;
     getAllTransactions(): Promise<Array<Transaction>>;
     getAllUsers(): Promise<Array<[string, bigint]>>;
+    getAllXutNumbers(): Promise<Array<[string, string]>>;
     getBroadcast(): Promise<string>;
     getCardNumber(name: string): Promise<string>;
     getContent(key: string): Promise<string>;
     getLockdown(): Promise<boolean>;
+    getMemberExtras(name: string): Promise<string>;
     getMemberFunds(name: string): Promise<number>;
     getMemberTransactions(member: string): Promise<Array<Transaction>>;
+    getMenuItemExtras(id: string): Promise<string>;
     getMenuItems(facility: string): Promise<Array<MenuItem>>;
     getOfficeLocations(): Promise<string>;
     getSectorLogs(sector: string): Promise<Array<SectorLog>>;
     getSecurityQuestion(name: string): Promise<string>;
     getUserCount(): Promise<bigint>;
+    getXutNumber(name: string): Promise<string>;
     loginUser(name: string, answer: string): Promise<User>;
     registerUser(name: string, question: string, answer: string): Promise<void>;
+    renameUser(oldName: string, newName: string, question: string, answer: string, level: bigint, uid: bigint): Promise<void>;
     setBroadcast(msg: string): Promise<void>;
     setCardNumber(name: string, cardNum: string): Promise<void>;
     setContent(key: string, value: string): Promise<void>;
     setLockdown(active: boolean): Promise<void>;
+    setMemberExtras(name: string, json: string): Promise<void>;
     setMemberFunds(name: string, amount: number): Promise<void>;
+    setMenuItemExtras(id: string, json: string): Promise<void>;
     setOfficeLocations(json: string): Promise<void>;
+    setUserLevel(name: string, level: bigint): Promise<void>;
+    setXutNumber(name: string, xutNum: string): Promise<void>;
     updateAdminPost(id: string, newContent: string): Promise<void>;
     updateMenuItemStock(id: string, newStock: bigint): Promise<void>;
     updateSectorLog(id: string, newBody: string): Promise<void>;
     updateUserLevel(name: string, newLevel: bigint): Promise<void>;
-    updateUserAnswer(name: string, newAnswer: string): Promise<void>;
+    updateUserPassword(name: string, newAnswer: string): Promise<void>;
+    updateUserQuestion(name: string, newQuestion: string): Promise<void>;
     userExists(name: string): Promise<boolean>;
-    setXutNumber(name: string, xutNum: string): Promise<void>;
-    getXutNumber(name: string): Promise<string>;
-    getAllXutNumbers(): Promise<Array<[string, string]>>;
-    setMenuItemExtras(id: string, json: string): Promise<void>;
-    getMenuItemExtras(id: string): Promise<string>;
-    getAllMenuItemExtras(): Promise<Array<[string, string]>>;
-    setMemberExtras(name: string, json: string): Promise<void>;
-    getMemberExtras(name: string): Promise<string>;
-    getAllMemberExtras(): Promise<Array<[string, string]>>;
-    _initializeAccessControlWithSecret(secret: string): Promise<void>;
 }
 export class Backend implements backendInterface {
     constructor(private actor: ActorSubclass<_SERVICE>, private _uploadFile: (file: ExternalBlob) => Promise<Uint8Array>, private _downloadFile: (file: Uint8Array) => Promise<ExternalBlob>, private processError?: (error: unknown) => never){}
@@ -389,6 +391,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getAllMemberExtras(): Promise<Array<[string, string]>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllMemberExtras();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllMemberExtras();
+            return result;
+        }
+    }
     async getAllMemberFunds(): Promise<Array<[string, number]>> {
         if (this.processError) {
             try {
@@ -400,6 +416,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.getAllMemberFunds();
+            return result;
+        }
+    }
+    async getAllMenuItemExtras(): Promise<Array<[string, string]>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllMenuItemExtras();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllMenuItemExtras();
             return result;
         }
     }
@@ -459,6 +489,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getAllXutNumbers(): Promise<Array<[string, string]>> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getAllXutNumbers();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getAllXutNumbers();
+            return result;
+        }
+    }
     async getBroadcast(): Promise<string> {
         if (this.processError) {
             try {
@@ -515,6 +559,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getMemberExtras(arg0: string): Promise<string> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getMemberExtras(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getMemberExtras(arg0);
+            return result;
+        }
+    }
     async getMemberFunds(arg0: string): Promise<number> {
         if (this.processError) {
             try {
@@ -540,6 +598,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.getMemberTransactions(arg0);
+            return result;
+        }
+    }
+    async getMenuItemExtras(arg0: string): Promise<string> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getMenuItemExtras(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getMenuItemExtras(arg0);
             return result;
         }
     }
@@ -613,6 +685,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async getXutNumber(arg0: string): Promise<string> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.getXutNumber(arg0);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.getXutNumber(arg0);
+            return result;
+        }
+    }
     async loginUser(arg0: string, arg1: string): Promise<User> {
         if (this.processError) {
             try {
@@ -638,6 +724,20 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.registerUser(arg0, arg1, arg2);
+            return result;
+        }
+    }
+    async renameUser(arg0: string, arg1: string, arg2: string, arg3: string, arg4: bigint, arg5: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.renameUser(arg0, arg1, arg2, arg3, arg4, arg5);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.renameUser(arg0, arg1, arg2, arg3, arg4, arg5);
             return result;
         }
     }
@@ -697,6 +797,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async setMemberExtras(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setMemberExtras(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setMemberExtras(arg0, arg1);
+            return result;
+        }
+    }
     async setMemberFunds(arg0: string, arg1: number): Promise<void> {
         if (this.processError) {
             try {
@@ -711,6 +825,20 @@ export class Backend implements backendInterface {
             return result;
         }
     }
+    async setMenuItemExtras(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setMenuItemExtras(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setMenuItemExtras(arg0, arg1);
+            return result;
+        }
+    }
     async setOfficeLocations(arg0: string): Promise<void> {
         if (this.processError) {
             try {
@@ -722,6 +850,34 @@ export class Backend implements backendInterface {
             }
         } else {
             const result = await this.actor.setOfficeLocations(arg0);
+            return result;
+        }
+    }
+    async setUserLevel(arg0: string, arg1: bigint): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setUserLevel(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setUserLevel(arg0, arg1);
+            return result;
+        }
+    }
+    async setXutNumber(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.setXutNumber(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.setXutNumber(arg0, arg1);
             return result;
         }
     }
@@ -781,17 +937,31 @@ export class Backend implements backendInterface {
             return result;
         }
     }
-    async updateUserAnswer(arg0: string, arg1: string): Promise<void> {
+    async updateUserPassword(arg0: string, arg1: string): Promise<void> {
         if (this.processError) {
             try {
-                const result = await this.actor.updateUserAnswer(arg0, arg1);
+                const result = await this.actor.updateUserPassword(arg0, arg1);
                 return result;
             } catch (e) {
                 this.processError(e);
                 throw new Error("unreachable");
             }
         } else {
-            const result = await this.actor.updateUserAnswer(arg0, arg1);
+            const result = await this.actor.updateUserPassword(arg0, arg1);
+            return result;
+        }
+    }
+    async updateUserQuestion(arg0: string, arg1: string): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.updateUserQuestion(arg0, arg1);
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.updateUserQuestion(arg0, arg1);
             return result;
         }
     }
@@ -808,36 +978,6 @@ export class Backend implements backendInterface {
             const result = await this.actor.userExists(arg0);
             return result;
         }
-    }
-    async setXutNumber(name: string, xutNum: string): Promise<void> {
-        return (this.actor as any).setXutNumber(name, xutNum);
-    }
-    async getXutNumber(name: string): Promise<string> {
-        return (this.actor as any).getXutNumber(name);
-    }
-    async getAllXutNumbers(): Promise<Array<[string, string]>> {
-        return (this.actor as any).getAllXutNumbers();
-    }
-    async setMenuItemExtras(id: string, json: string): Promise<void> {
-        return (this.actor as any).setMenuItemExtras(id, json);
-    }
-    async getMenuItemExtras(id: string): Promise<string> {
-        return (this.actor as any).getMenuItemExtras(id);
-    }
-    async getAllMenuItemExtras(): Promise<Array<[string, string]>> {
-        return (this.actor as any).getAllMenuItemExtras();
-    }
-    async setMemberExtras(name: string, json: string): Promise<void> {
-        return (this.actor as any).setMemberExtras(name, json);
-    }
-    async getMemberExtras(name: string): Promise<string> {
-        return (this.actor as any).getMemberExtras(name);
-    }
-    async getAllMemberExtras(): Promise<Array<[string, string]>> {
-        return (this.actor as any).getAllMemberExtras();
-    }
-    async _initializeAccessControlWithSecret(secret: string): Promise<void> {
-        return (this.actor as any)._initializeAccessControlWithSecret(secret);
     }
 }
 export interface CreateActorOptions {

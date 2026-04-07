@@ -217,6 +217,80 @@ actor {
     };
   };
 
+  public shared ({ caller }) func updateUserQuestion(name : Text, newQuestion : Text) : async () {
+    switch (users.get(name)) {
+      case (null) { Runtime.trap("Could not find user.") };
+      case (?user) {
+        let updatedUser = { user with question = newQuestion };
+        users.add(name, updatedUser);
+      };
+    };
+  };
+
+  public shared ({ caller }) func renameUser(oldName : Text, newName : Text, question : Text, answer : Text, level : Nat, uid : Nat) : async () {
+    switch (users.get(oldName)) {
+      case (null) { Runtime.trap("Could not find user to rename.") };
+      case (?_oldUser) {
+        let normalizedNewName = Text.fromIter(
+          newName.toIter().map(
+            func(c) {
+              if (c.isAlphabetic() and c >= 'a' and c <= 'z') {
+                Char.fromNat32(c.toNat32() - 32);
+              } else { c };
+            }
+          )
+        );
+        let normalizedAnswer = Text.fromIter(
+          answer.toIter().map(
+            func(c) {
+              if (c.isAlphabetic() and c >= 'A' and c <= 'Z') {
+                Char.fromNat32(c.toNat32() + 32);
+              } else { c };
+            }
+          )
+        );
+        let newUser : User = {
+          name = normalizedNewName;
+          level;
+          question;
+          answer = normalizedAnswer;
+          uid = uid.toText();
+        };
+        users.add(normalizedNewName, newUser);
+        users.remove(oldName);
+        // Migrate associated data to new name
+        switch (memberFunds.get(oldName)) {
+          case (?funds) {
+            memberFunds.add(normalizedNewName, funds);
+            memberFunds.remove(oldName);
+          };
+          case (null) {};
+        };
+        switch (cardNumbers.get(oldName)) {
+          case (?card) {
+            cardNumbers.add(normalizedNewName, card);
+            cardNumbers.remove(oldName);
+          };
+          case (null) {};
+        };
+        switch (xutNumbers.get(oldName)) {
+          case (?xut) {
+            xutNumbers.add(normalizedNewName, xut);
+            xutNumbers.remove(oldName);
+          };
+          case (null) {};
+        };
+        switch (memberExtras.get(oldName)) {
+          case (?extras) {
+            memberExtras.add(normalizedNewName, extras);
+            memberExtras.remove(oldName);
+          };
+          case (null) {};
+        };
+      };
+    };
+  };
+
   public shared ({ caller }) func deleteUser(name : Text) : async () {
     let nameNormalized = Text.fromIter(
       name.toIter().map(
