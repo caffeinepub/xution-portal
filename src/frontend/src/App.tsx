@@ -1200,14 +1200,22 @@ function XutionCard({ currentUser }: { currentUser: CurrentUser }) {
 function FundManagement({
   onUpdate,
   currentUser,
+  syncTick,
 }: {
   onUpdate: () => void;
   currentUser: CurrentUser;
+  syncTick?: number;
 }) {
   const { actor } = useActor(createActor);
   const [expanded, setExpanded] = useState(false);
-  const [db] = useState<UserDB>(getDB);
+  const [db, setDb] = useState<UserDB>(getDB);
   const [inputVals, setInputVals] = useState<Record<string, string>>({});
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: syncTick is intentional trigger
+  useEffect(() => {
+    setDb(getDB());
+  }, [syncTick]);
+
   const memberNames = Object.keys(db);
 
   const [adjustSearch, setAdjustSearch] = useState("");
@@ -10208,7 +10216,11 @@ function AdminSettingsPanel({
         {/* Panel body */}
         <div style={{ padding: "20px", flex: 1 }}>
           {/* ── Fund Management ── */}
-          <FundManagement onUpdate={onUpdate} currentUser={currentUser} />
+          <FundManagement
+            onUpdate={onUpdate}
+            currentUser={currentUser}
+            syncTick={syncTick}
+          />
 
           {/* ── Global Transaction Ledger ── */}
           <GlobalTransactionHistory
